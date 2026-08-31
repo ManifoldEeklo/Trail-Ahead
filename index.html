@@ -307,6 +307,15 @@
   /* the download/clear buttons live in the map's statbar, NOT the sidebar —
      so they stay reachable even while the sidebar drawer is closed */
   body.is-mobile .statbar{flex-wrap:wrap;}
+  /* the paved/unpaved legend used to float over the bottom-left of the map
+     on mobile, colliding with the stat bar/elevation chart right below it.
+     Pull it out of the floating overlay and let it sit in normal document
+     flow instead — it's already right before .statbar in the markup, so
+     this naturally places it directly above the distance/% readout rather
+     than on top of it. */
+  body.is-mobile .map-legend{
+    position:static;margin:8px 10px 0;width:auto;
+  }
   body.is-mobile .readout{width:100%;justify-content:space-between;border-right:none;border-bottom:1px solid var(--line);}
   body.is-mobile .elevchart{width:100%;height:70px;}
   body.is-mobile #downloadBtn, body.is-mobile #clearRouteBtn{flex:1 1 auto;margin:8px;}
