@@ -1,0 +1,9 @@
+{
+  "name": "trail-ahead",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trail-ahead — gravel/off-road route planner. Single static HTML app; all routing calls (BRouter, Valhalla, OSRM, Overpass, NGI Top10Vector, TOP10NL, Tragewegenregister) run directly from the browser to public APIs, so there's no server or build step.",
+  "scripts": {
+    "dev": "npx serve ."
+  }
+}
