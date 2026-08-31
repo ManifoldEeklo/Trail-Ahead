@@ -447,24 +447,19 @@
 
       <div class="field">
         <label>Activity</label>
-        <select id="activitySelect">
-          <option value="gravel" selected>Gravel cycling</option>
-          <option value="road">Road cycling</option>
-          <option value="mtb">Mountain bike (trail-preferring)</option>
-          <option value="foot">Hiking / trail running</option>
-        </select>
+        <div class="diff-select">
+          <div class="diff-btn sel" data-act="gravel">Gravel</div>
+          <div class="diff-btn" data-act="road">Road</div>
+        </div>
       </div>
 
-      <div class="field">
-        <label>Surface preference <span class="unit" id="surfaceHint">gravel.brf</span></label>
-        <select id="surfaceSelect">
-          <option value="offroad" selected>Max off-road — gravel &amp; trails</option>
-          <option value="mixed">Mixed — quiet lanes &amp; good trails</option>
-          <option value="paved">Roads — paved, fastest</option>
-        </select>
-      </div>
+      <select id="surfaceSelect" style="display:none;">
+        <option value="offroad" selected>Max off-road — gravel &amp; trails</option>
+        <option value="mixed">Mixed — quiet lanes &amp; good trails</option>
+        <option value="paved">Roads — paved, fastest</option>
+      </select>
 
-      <div class="field" id="minOffroadField">
+      <div class="field" id="minOffroadField" style="display:none;">
         <label>Minimum unpaved/track <span class="unit" id="minOffroadVal">30%</span></label>
         <input type="range" id="minOffroadSlider" min="20" max="90" value="30" step="5" style="width:100%;accent-color:#c1611d;">
         <div class="hint-text" style="margin-top:6px;">
@@ -712,11 +707,11 @@
   // genuine gravel/track/singletrack preference instead of just "any road".
   var BROUTER_URL = "https://brouter.de/brouter";
   var BROUTER_PROFILE = {
-    // maximum off-road: dedicated gravel/road/mtb/mountain-hiking profiles that
-    // actively prefer unpaved tracks, paths and trails over tarmac (road cycling
-    // still gets a "fastbike" profile here since a road bike can't really do
-    // singletrack — it's the best-effort match for that activity)
-    offroad: { gravel:"gravel", road:"fastbike", mtb:"mtb", foot:"hiking-mountain" },
+    // "Gravel" in the UI now deliberately routes with the MTB profile — real-
+    // world testing showed MTB's routing consistently found more genuine
+    // off-road ground than the dedicated gravel.brf profile did. Road cycling
+    // still gets "fastbike" (a road bike can't do singletrack).
+    offroad: { gravel:"mtb", road:"fastbike", mtb:"mtb", foot:"hiking-mountain" },
     // mixed: balanced trekking profiles — happy on quiet lanes and good trails alike
     mixed:   { gravel:"trekking", road:"trekking", mtb:"trekking", foot:"trekking" }
   };
@@ -1062,10 +1057,14 @@
   distSlider.addEventListener('input', syncDist);
   syncDist();
 
-  document.getElementById('activitySelect').addEventListener('change', function(){
-    state.activity = this.value;
-    resetTop10vWeights();
-    updateSurfaceHint();
+  Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-act]'), function(btn){
+    btn.addEventListener('click', function(){
+      Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-act]'), function(b){ b.classList.remove('sel'); });
+      btn.classList.add('sel');
+      state.activity = btn.getAttribute('data-act');
+      resetTop10vWeights();
+      updateSurfaceHint();
+    });
   });
 
   function setTop10vSliderUI(){
@@ -1096,29 +1095,23 @@
   });
   setTop10vSliderUI();
 
+  // Surface preference, the min-unpaved slider, and the Top10Vector weight
+  // sliders are no longer shown in the main menu at all — Gravel always
+  // routes max-off-road (with MTB-grade settings, see TOP10V_ACTIVITY_WEIGHTS
+  // and BROUTER_PROFILE.offroad.gravel), Road always routes paved, and the
+  // minimum-unpaved threshold just uses its Junior/Pro default silently.
+  // Top10Vector weighting stays admin-only (applyFeatureVisibility handles
+  // showing/hiding #top10vWeightsField); this function just keeps state.surface
+  // sane and disabled behind the scenes.
   function updateSurfaceHint(){
-    var hint = document.getElementById('surfaceHint');
     var surfaceSelect = document.getElementById('surfaceSelect');
-    var minOffroadField = document.getElementById('minOffroadField');
-    var top10vWeightsField = document.getElementById('top10vWeightsField');
-    var showSlider = state.activity !== 'road' && state.surface === 'offroad';
-    minOffroadField.style.display = showSlider ? 'block' : 'none';
-    top10vWeightsField.style.display = showSlider ? 'block' : 'none';
     if (state.activity === 'road'){
-      hint.textContent = 'road router (always)';
       surfaceSelect.disabled = true;
-      surfaceSelect.title = 'Road cycling always uses paved-preferring routing — this doesn\'t apply.';
       return;
     }
     surfaceSelect.disabled = false;
-    surfaceSelect.title = '';
-    if (state.surface === 'paved'){ hint.textContent = 'OSRM road router'; return; }
-    hint.textContent = BROUTER_PROFILE[state.surface][state.activity] + '.brf';
+    state.surface = 'offroad'; // Gravel is always max off-road now — no user-facing toggle for it
   }
-  document.getElementById('surfaceSelect').addEventListener('change', function(){
-    state.surface = this.value;
-    updateSurfaceHint();
-  });
   document.getElementById('minOffroadSlider').addEventListener('input', function(){
     state.minOffroadPct = parseInt(this.value, 10);
     document.getElementById('minOffroadVal').textContent = state.minOffroadPct + '%';
@@ -1545,22 +1538,8 @@
       clauses.push('way["highway"~"^(path|footway|track|bridleway)$"]' + around + ';');
       clauses.push('way["surface"~"^(unpaved|gravel|fine_gravel|dirt|ground|compacted|earth|grass|sand|pebblestone)$"]["highway"]' + around + ';');
       clauses.push('relation["route"~"^(hiking|foot)$"]' + around + ';>>;');
-    } else if (activity === 'gravel'){
-      clauses.push('way["highway"="track"]["tracktype"~"^(grade1|grade2|grade3)$"]' + around + ';');
-      clauses.push('way["highway"="track"][!"tracktype"]' + around + ';');
-      clauses.push('way["surface"~"^(unpaved|gravel|fine_gravel|compacted)$"]["highway"~"^(track|unclassified|service)$"]' + around + ';');
-      // cycleway=track only means "physically separated cycle path" — it says
-      // nothing about surface, and plenty of these are plain asphalt. Only
-      // count it if it's NOT explicitly tagged as a paved surface.
-      clauses.push('way["cycleway"="track"]["surface"!~"^(paved|asphalt|concrete|concrete:plates|paving_stones|sett)$"]' + around + ';');
-      clauses.push('way["highway"="cycleway"]["surface"~"^(unpaved|gravel|fine_gravel|compacted)$"]' + around + ';');
-      // Dike-top and towpath-style tracks are extremely common in flat/coastal
-      // polder areas (exactly the terrain this needs to work well in) and are
-      // very often tagged path/bridleway rather than track, but are wide,
-      // rideable, and rarely surfaced — include them unless explicitly closed
-      // to bikes or explicitly paved.
-      clauses.push('way["highway"~"^(path|bridleway)$"]["bicycle"!="no"]["surface"!~"^(paved|asphalt|concrete|concrete:plates|paving_stones|sett)$"]' + around + ';');
-    } else { // mtb
+    } else { // gravel and mtb now share the same broad, technical-terrain query —
+             // "Gravel" in the UI routes with MTB-grade settings throughout
       clauses.push('way["highway"~"^(track|path|bridleway)$"]' + around + ';');
       clauses.push('way["surface"~"^(unpaved|gravel|fine_gravel|dirt|ground|compacted|earth|grass|sand|pebblestone)$"]["highway"]' + around + ';');
       clauses.push('way["tracktype"~"^(grade2|grade3|grade4|grade5)$"]' + around + ';');
@@ -1703,14 +1682,11 @@
   // Defaults per activity — used to reset the sliders when the activity
   // changes, but the LIVE values the app actually routes with always come
   // from state.top10vWeights, which the person can freely tune.
-  // Gravel is now tuned to ~90% of MTB's off-road-finding strength — close
-  // enough that both find comparable amounts of unpaved ground, without
-  // fully matching MTB's technical-singletrack preference (that's still
-  // handled separately by BRouter's own gravel.brf vs mtb.brf profile,
-  // which stays distinct — a real gravel bike genuinely can't ride true
-  // singletrack, so that boundary is kept even as the weights converge).
+  // Gravel now uses the exact same weighting as MTB — since the underlying
+  // BRouter profile switched to mtb.brf too (see BROUTER_PROFILE above),
+  // there's no longer a meaningful distinction to preserve here.
   var TOP10V_ACTIVITY_WEIGHTS = {
-    gravel: { gravelroad:1.6, dirtroad:1.6, path:1.7 },
+    gravel: { gravelroad:1.3, dirtroad:1.6, path:1.9 },
     mtb:    { gravelroad:1.3, dirtroad:1.6, path:1.9 },
     foot:   { gravelroad:1.1, dirtroad:1.6, path:1.7 }
   };
