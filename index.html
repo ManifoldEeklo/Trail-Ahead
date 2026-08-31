@@ -681,9 +681,11 @@
     sidebarEl.classList.contains('open') ? closeSidebar() : openSidebar();
   });
   sidebarBackdrop.addEventListener('click', closeSidebar);
-  // On a real phone, start with the map front and center — open the drawer
-  // on demand rather than covering the screen on load.
-  if (detectMobile()) closeSidebar();
+  // On a phone, start with the menu open (right after the splash screen) —
+  // the sidebar itself defaults to closed via its CSS transform, so this has
+  // to explicitly open it. It collapses automatically once a route is
+  // generated (see handleGenerateClick), revealing the map full-screen.
+  if (detectMobile()) openSidebar();
 
   // Mobile-only Hide/Show for the surface-breakdown legend — collapses just
   // the legend's body, leaving its small header (and, unaffected by any of
