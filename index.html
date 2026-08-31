@@ -123,6 +123,14 @@
   .map-legend span{display:flex;align-items:center;gap:7px;}
   .map-legend i{width:14px;height:4px;border-radius:2px;display:inline-block;flex:0 0 auto;}
   .map-legend .legend-total{color:var(--text-muted);border-top:1px solid var(--line);padding-top:5px;margin-top:1px;}
+  .map-legend-header{display:none;} /* only shown on mobile — see body.is-mobile rule below */
+  .map-legend-header span{color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.06em;}
+  .map-legend-header button{
+    background:var(--panel-alt);border:1px solid var(--line);color:var(--gold);
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;
+    padding:3px 10px;border-radius:12px;cursor:pointer;
+  }
+  .map-legend.collapsed .map-legend-body{display:none;}
 
   /* ---------- FORM ---------- */
   .field{margin-bottom:16px;}
@@ -318,6 +326,10 @@
   body.is-mobile .map-legend{
     position:static;margin:8px 10px 0;width:auto;
   }
+  body.is-mobile .map-legend-header{
+    display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;
+  }
+  body.is-mobile .map-legend.collapsed{padding-bottom:8px;} /* keep the header row tidy when body is hidden */
   body.is-mobile .readout{width:100%;justify-content:space-between;border-right:none;border-bottom:1px solid var(--line);}
   body.is-mobile .elevchart{width:100%;height:70px;}
   body.is-mobile #downloadBtn, body.is-mobile #clearRouteBtn, body.is-mobile #generateBtnMap{flex:1 1 auto;margin:8px;}
@@ -591,9 +603,15 @@
         <a id="svpOpenExternal" href="#" target="_blank" rel="noopener">Open in Google Maps ↗</a>
       </div>
       <div class="map-legend" id="mapLegend" style="display:none;">
-        <span><i style="background:#d9b556;"></i> Paved: <span id="legendPavedKm">—</span> km (<span id="legendPavedPct">—</span>%)</span>
-        <span><i style="background:#3f9fd6;"></i> Unpaved: <span id="legendOffroadKm">—</span> km (<span id="legendOffroadPct">—</span>%)</span>
-        <span class="legend-total">Total: <span id="legendTotalKm">—</span> km (100%)</span>
+        <div class="map-legend-header">
+          <span>Surface breakdown</span>
+          <button id="legendToggleBtn">Hide</button>
+        </div>
+        <div class="map-legend-body" id="mapLegendBody">
+          <span><i style="background:#d9b556;"></i> Paved: <span id="legendPavedKm">—</span> km (<span id="legendPavedPct">—</span>%)</span>
+          <span><i style="background:#3f9fd6;"></i> Unpaved: <span id="legendOffroadKm">—</span> km (<span id="legendOffroadPct">—</span>%)</span>
+          <span class="legend-total">Total: <span id="legendTotalKm">—</span> km (100%)</span>
+        </div>
       </div>
       <div class="statbar">
         <div class="readout">
@@ -666,6 +684,15 @@
   // On a real phone, start with the map front and center — open the drawer
   // on demand rather than covering the screen on load.
   if (detectMobile()) closeSidebar();
+
+  // Mobile-only Hide/Show for the surface-breakdown legend — collapses just
+  // the legend's body, leaving its small header (and, unaffected by any of
+  // this, the Generate/.gpx/Clear buttons in the stat bar) in place.
+  document.getElementById('legendToggleBtn').addEventListener('click', function(){
+    var legend = document.getElementById('mapLegend');
+    var collapsed = legend.classList.toggle('collapsed');
+    this.textContent = collapsed ? 'Show' : 'Hide';
+  });
 
   /* ---------------- STATE ---------------- */
   var state = {
