@@ -198,6 +198,7 @@
   .diff-btn[data-d="junior"].sel{background:var(--easy);color:#0d1a0c;border-color:var(--easy);}
   .diff-btn[data-d="pro"].sel{background:var(--hard);color:#1b0e04;border-color:var(--hard);}
   .diff-btn[data-rs].sel{background:var(--gold);color:#231a05;border-color:var(--gold);}
+  .diff-btn[data-act].sel{background:var(--accent);color:#150c05;border-color:var(--accent);}
 
   .status{font-size:12px;color:var(--text-muted);margin-top:10px;min-height:16px;line-height:1.5;}
   .status.err{color:#e08a7d;}
@@ -260,8 +261,9 @@
   .elevchart svg{width:100%;height:100%;display:block;}
   .elev-note{position:absolute;top:4px;right:16px;font-size:10.5px;color:var(--text-muted);max-width:340px;text-align:right;}
   .elev-note.warn{color:var(--extreme);}
-  #downloadBtn{flex:0 0 auto;margin:10px 16px;padding:0 20px;}
+  #downloadBtn{flex:0 0 auto;margin:10px 16px 10px 0;padding:0 20px;}
   #clearRouteBtn{flex:0 0 auto;margin:10px 0 10px 16px;padding:0 18px;align-self:center;}
+  #generateBtnMap{flex:0 0 auto;margin:10px 0;padding:0 20px;}
   #clearRouteBtn:disabled{opacity:.4;cursor:not-allowed;}
 
   /* misc leaflet overrides */
@@ -318,7 +320,7 @@
   }
   body.is-mobile .readout{width:100%;justify-content:space-between;border-right:none;border-bottom:1px solid var(--line);}
   body.is-mobile .elevchart{width:100%;height:70px;}
-  body.is-mobile #downloadBtn, body.is-mobile #clearRouteBtn{flex:1 1 auto;margin:8px;}
+  body.is-mobile #downloadBtn, body.is-mobile #clearRouteBtn, body.is-mobile #generateBtnMap{flex:1 1 auto;margin:8px;}
 </style>
 </head>
 <body>
@@ -503,8 +505,8 @@
       <div class="field">
         <label>Route shape</label>
         <div class="diff-select" style="grid-template-columns:repeat(3,1fr);">
-          <div class="diff-btn sel" data-rs="loop">Loop</div>
-          <div class="diff-btn" data-rs="crisscross">Crisscross</div>
+          <div class="diff-btn" data-rs="loop">Loop</div>
+          <div class="diff-btn sel" data-rs="crisscross">Crisscross</div>
           <div class="diff-btn" data-rs="figure">Figure</div>
         </div>
         <div class="hint-text" style="margin-top:6px;">
@@ -605,7 +607,8 @@
           <svg id="elevSvg" viewBox="0 0 1000 100" preserveAspectRatio="none"></svg>
         </div>
         <button class="btn" id="clearRouteBtn" disabled>✕ Clear</button>
-        <button class="btn primary" id="downloadBtn" disabled>⬇ Download .GPX</button>
+        <button class="btn primary" id="generateBtnMap">Generate Route</button>
+        <button class="btn primary" id="downloadBtn" disabled>⬇ .gpx</button>
       </div>
     </main>
   </div>
@@ -675,7 +678,7 @@
     radiusKm:5,
     radiusSoftness:0.6,
     top10vWeights: { gravelroad:1.6, dirtroad:1.6, path:1.7 }, // adjustable; defaults reset per activity
-    routeStyle: 'loop', // 'loop' | 'crisscross' | 'figure'
+    routeStyle: 'crisscross', // 'loop' | 'crisscross' | 'figure'
     figureShape: 'heart',
     surface:"offroad",    // 'offroad' | 'mixed' | 'paved'
     difficulty:"junior",  // 'junior' | 'pro'
@@ -2591,12 +2594,12 @@
     applyFeatureVisibility();
   });
 
-  document.getElementById('generateBtn').addEventListener('click', async function(){
-    var btn = this;
+  async function handleGenerateClick(){
+    var genBtns = [document.getElementById('generateBtn'), document.getElementById('generateBtnMap')];
     if (!state.start){ setStatus('Set a start point first — type an address, use your location, or click the map.', true); return; }
     if (!state.loopMode && !state.end){ setStatus('Set a finish point, or switch to Loop mode.', true); return; }
 
-    btn.disabled = true;
+    genBtns.forEach(function(b){ b.disabled = true; });
     clearRoute(); // wipe any previous route before starting a new one
     setStatus('Plotting route…');
 
@@ -2665,9 +2668,11 @@
     } catch(err){
       setStatus('Could not build that route: ' + err.message, true);
     } finally {
-      btn.disabled = false;
+      genBtns.forEach(function(b){ b.disabled = false; });
     }
-  });
+  }
+  document.getElementById('generateBtn').addEventListener('click', handleGenerateClick);
+  document.getElementById('generateBtnMap').addEventListener('click', handleGenerateClick);
 
   /* ---------------- GPX EXPORT ---------------- */
   function buildGPX(){
