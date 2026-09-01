@@ -1,16 +1,23 @@
 # Trail-ahead — gravel & off-road route planner
 
-Single static HTML app. No backend, no build step, no environment
-variables required — the whole routing pipeline (BRouter, Valhalla, OSRM,
-Overpass, NGI Top10Vector, TOP10NL, the Flemish Tragewegenregister) runs as
-direct fetch() calls from the browser to those public APIs.
+Mostly a static HTML app — routing (BRouter, Valhalla, OSRM, Overpass, NGI
+Top10Vector, TOP10NL, the Flemish Tragewegenregister) runs as direct
+`fetch()` calls from the browser to those public APIs, no backend involved.
+
+Two small serverless functions were added on top for **anonymous usage
+tracking** (app opens, unique devices, routes generated), stored in Upstash
+Redis and viewable from the app's own Admin panel.
 
 ## What's in this repo
 
 ```
-├── index.html      the entire app (map, UI, routing logic)
-├── package.json    just metadata + a local-preview script
-├── vercel.json     minimal static-site config (cleanUrls)
+├── index.html            the entire app (map, UI, routing logic)
+├── api/
+│   ├── track.js           records a "visit" or "route" event
+│   ├── stats.js            reads back the current counters
+│   └── cron-summary.js     optional: once a day, writes a snapshot to GitHub
+├── package.json
+├── vercel.json             static config + the daily cron schedule
 └── .gitignore
 ```
 
@@ -29,54 +36,69 @@ git push -u origin main
 
 ### 2. Import into Vercel
 
-- vercel.com → **Add New… → Project** → import the GitHub repo you just pushed.
-- Framework preset: **Other** (no build step — Vercel will serve `index.html` as-is).
-- Click **Deploy**. That's it — no environment variables to set, nothing else to configure.
+- vercel.com → **Add New… → Project** → import the repo you just pushed.
+- Framework preset: **Other**.
+- Deploy once first — the tracking endpoints will simply error harmlessly
+  (caught and ignored by the app) until you connect a database in step 3.
 
-Alternatively, from the CLI: `npx vercel` from inside this folder.
+### 3. Connect Upstash Redis (for the usage stats)
 
-### Local preview
+Vercel's own **Vercel KV is deprecated** — the currently recommended path
+is Upstash Redis via the Vercel Marketplace, which is what `api/track.js`
+and `api/stats.js` are built for.
 
-```bash
-npm run dev
-```
-(just runs `npx serve .` — any static file server works equally well)
+- Your Vercel project → **Storage** tab → **Create Database** → **Upstash →
+  Redis** (there's a free tier).
+- Connect it to this project. Vercel automatically injects
+  `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` as environment
+  variables — nothing to type in by hand, no token to manage yourself.
+- Redeploy (or it picks it up automatically) — the Admin panel's **Usage
+  stats** block will now show real numbers.
+
+### 4. (Optional) Daily snapshot to a GitHub file
+
+`api/cron-summary.js` runs once a day (see the `crons` entry in
+`vercel.json`) and appends `{date, visitsTotal, uniqueDevices, routesTotal}`
+to `stats/daily.json` in this repo — a simple historical log, without the
+commit-per-visit problem a naive "log straight to GitHub" approach would have.
+
+This step needs a **GitHub Personal Access Token** with permission to write
+to this repo:
+
+- GitHub → Settings → Developer settings → Personal access tokens → generate
+  one scoped to just this repo, **Contents: read and write**.
+- In your Vercel project → **Settings → Environment Variables**, add:
+
+| Name | Value |
+|---|---|
+| `GITHUB_TOKEN` | the token you just generated |
+| `GITHUB_REPO` | `your-username/your-repo` |
+| `GITHUB_STATS_PATH` | *(optional, defaults to `stats/daily.json`)* |
+| `GITHUB_BRANCH` | *(optional, defaults to `main`)* |
+
+If you skip this step entirely, the app still works fine — you just won't
+get the daily GitHub snapshot; the live numbers in the Admin panel keep
+working off Redis regardless.
 
 ## Mobile
 
-The app detects touch/narrow screens (`pointer: coarse` or width ≤900px) and
-switches the sidebar into a slide-in drawer, toggled with the ☰ button in the
-header. The map fills the screen by default on phones/tablets; the
-**Generate**, **Clear**, and **Download .GPX** buttons live in the map's own
-bottom bar, not inside the drawer, so they stay reachable whether the drawer
-is open or closed.
+Detects touch/narrow screens and switches the sidebar into a slide-in
+drawer (☰ button in the header). On phones the menu opens by default after
+the splash screen; generating a route collapses it automatically so the map
+fills the screen. **Generate**, **Clear**, and **.gpx** live in the map's
+own bottom bar, not inside the drawer, so they're always reachable.
 
 ## Known limitations, stated plainly
 
 - **The admin password (`Admin123`) is a plain string inside `index.html`.**
-  It's a UI convenience gate for hiding a couple of optional features
-  (Waypoints, Street View, Top10Vector weighting sliders, radius limit,
-  explanation text) from casual users — it is **not real security**. Anyone
-  can read it directly from the page source, on GitHub, or in the browser.
-  If you need actual access control, that requires a real backend (see the
-  note below).
-- **External API reliability isn't guaranteed.** BRouter, Valhalla,
-  Overpass, and the various Belgian/Dutch government geodata services are
-  all free public services outside this app's control. The app is built to
-  fail gracefully (falls back to plain road routing, or tells you honestly
-  when a data source came up short) rather than break, but it can't
-  guarantee those services stay up or keep the same API shape forever.
-- **No server-side rendering, no analytics, no tracking** — it's a plain
-  static file. If you want usage analytics, that's a separate addition
-  (e.g. Vercel Analytics, which can be turned on for any Vercel project
-  without touching this code).
-
-## If you later want the routing logic hidden server-side
-
-This version intentionally keeps everything client-side for simplicity —
-the whole point of tonight's deploy was "get this live with zero moving
-parts." If down the line you want the actual routing algorithm to run on a
-server (so it isn't visible in the browser's dev tools), that's a genuinely
-different architecture — a separate `api/` + `lib/` structure with Vercel
-serverless functions was scoped out earlier in this project's history and
-can be revisited then.
+  UI convenience only, not real security — readable by anyone in the page
+  source. Same is true of `/api/stats` itself: it's not access-controlled,
+  so anyone who knows the URL can read the counters. Fine for a personal
+  project's usage numbers; not something to put real secrets behind.
+- **Device counting uses `localStorage`.** Clearing browser data makes a
+  returning visitor look "new" again — a known, accepted trade-off of not
+  requiring accounts or real device fingerprinting.
+- **External routing APIs** (BRouter, Valhalla, Overpass, the various
+  government geodata services) are outside this app's control and can go
+  down or change shape; the app is built to degrade gracefully rather than
+  break when that happens, but can't guarantee their uptime.

@@ -86,6 +86,18 @@
   }
   main.mapwrap{flex:1 1 auto;position:relative;min-width:0;display:flex;flex-direction:column;}
   #map{flex:1 1 auto;min-height:0;background:#0c130f;}
+  #mapLoadingOverlay{
+    display:none;position:absolute;inset:0;z-index:1800;
+    background:rgba(13,23,18,.78);
+    flex-direction:column;align-items:center;justify-content:center;
+  }
+  #mapLoadingOverlay.show{display:flex;}
+  #mapLoadingOverlay .loading-logo{width:130px;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.5));}
+  .loading-wheel{animation:splashSpin 1.5s linear infinite;transform-box:fill-box;transform-origin:50% 50%;}
+  #mapLoadingOverlay .loading-text{
+    margin-top:12px;font-family:'Fjalla One',sans-serif;font-size:13px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--text-muted);
+  }
   #pegman{
     position:absolute;top:90px;left:10px;z-index:900;
     width:36px;height:36px;border-radius:50%;
@@ -171,6 +183,15 @@
   .suggestions{
     position:relative;
   }
+  .input-wrap{position:relative;}
+  .input-wrap input[type=text]{padding-right:30px;} /* room for the clear "×" */
+  .input-clear{
+    display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);width:20px;height:20px;
+    align-items:center;justify-content:center;border-radius:50%;
+    color:var(--text-muted);font-size:13px;cursor:pointer;line-height:1;
+  }
+  .input-clear:hover{color:var(--extreme);background:var(--line);}
+  .input-clear.show{display:flex;}
   .suggest-list{
     position:absolute;z-index:1200;left:0;right:0;top:100%;margin-top:2px;
     background:var(--panel-alt);border:1px solid var(--line);border-radius:var(--radius);
@@ -250,6 +271,11 @@
   }
   .admin-switch[data-on="true"]{background:var(--easy);color:#0d1a0c;border-color:var(--easy);}
   .admin-note{font-size:10.5px;color:var(--text-muted);margin-top:12px;line-height:1.4;}
+  .admin-stats-block{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+  .admin-stats-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .admin-stats-header span{font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:.06em;font-weight:600;}
+  .admin-stats-row{display:flex;justify-content:space-between;padding:4px 0;font-size:12.5px;color:var(--text);}
+  .admin-stats-row span:last-child{font-family:'IBM Plex Mono',monospace;color:var(--gold);}
 
   .status.ok{color:var(--gold);}
 
@@ -269,9 +295,11 @@
   .elevchart svg{width:100%;height:100%;display:block;}
   .elev-note{position:absolute;top:4px;right:16px;font-size:10.5px;color:var(--text-muted);max-width:340px;text-align:right;}
   .elev-note.warn{color:var(--extreme);}
-  #downloadBtn{flex:0 0 auto;margin:10px 16px 10px 0;padding:0 20px;}
-  #clearRouteBtn{flex:0 0 auto;margin:10px 0 10px 16px;padding:0 18px;align-self:center;}
-  #generateBtnMap{flex:0 0 auto;margin:10px 0;padding:0 20px;}
+  #downloadBtn{flex:0 0 auto;width:auto;margin:10px 16px 10px 0;padding:0 20px;}
+  #undoBtn, #redoBtn{flex:0 0 auto;width:36px;height:34px;margin:10px 0 10px 8px;padding:0;align-self:center;font-size:17px;line-height:1;}
+  #undoBtn{margin-left:16px;}
+  #clearRouteBtn{flex:0 0 auto;width:auto;margin:10px 0 10px 16px;padding:0 18px;align-self:center;}
+  #generateBtnMap{flex:0 0 auto;width:auto;margin:10px 0;padding:0 20px;}
   #clearRouteBtn:disabled{opacity:.4;cursor:not-allowed;}
 
   /* misc leaflet overrides */
@@ -332,7 +360,8 @@
   body.is-mobile .map-legend.collapsed{padding-bottom:8px;} /* keep the header row tidy when body is hidden */
   body.is-mobile .readout{width:100%;justify-content:space-between;border-right:none;border-bottom:1px solid var(--line);}
   body.is-mobile .elevchart{width:100%;height:70px;}
-  body.is-mobile #downloadBtn, body.is-mobile #clearRouteBtn, body.is-mobile #generateBtnMap{flex:1 1 auto;margin:8px;}
+  body.is-mobile #downloadBtn, body.is-mobile #clearRouteBtn, body.is-mobile #generateBtnMap{flex:1 1 auto;width:auto;margin:8px;}
+  body.is-mobile #undoBtn, body.is-mobile #redoBtn{flex:0 0 auto;margin:8px 2px;}
 </style>
 </head>
 <body>
@@ -397,7 +426,10 @@
       <div class="section-label">Start</div>
       <div class="field suggestions">
         <label>Location <span class="unit" id="startUnitHint"></span></label>
-        <input type="text" id="startInput" placeholder="Address, town, or place name…" autocomplete="off">
+        <div class="input-wrap">
+          <input type="text" id="startInput" placeholder="Address, town, or place name…" autocomplete="off">
+          <span class="input-clear" id="startInputClear" title="Clear">✕</span>
+        </div>
         <div class="suggest-list" id="startSuggest"></div>
       </div>
       <div class="toggle-row">
@@ -427,7 +459,10 @@
       </div>
       <div class="field suggestions" id="endField" style="display:none;">
         <label>End location</label>
-        <input type="text" id="endInput" placeholder="Address, town, or place name…" autocomplete="off">
+        <div class="input-wrap">
+          <input type="text" id="endInput" placeholder="Address, town, or place name…" autocomplete="off">
+          <span class="input-clear" id="endInputClear" title="Clear">✕</span>
+        </div>
         <div class="suggest-list" id="endSuggest"></div>
       </div>
       <div class="toggle-row" id="endMapRow" style="display:none;">
@@ -442,7 +477,10 @@
           Optional — nudge the route toward a region or through a specific spot. Add an address or drop a pin; leave empty to let the generator pick freely.
         </div>
         <div class="field suggestions">
-          <input type="text" id="wpInput" placeholder="Address to steer the route through…" autocomplete="off">
+          <div class="input-wrap">
+            <input type="text" id="wpInput" placeholder="Address to steer the route through…" autocomplete="off">
+            <span class="input-clear" id="wpInputClear" title="Clear">✕</span>
+          </div>
           <div class="suggest-list" id="wpSuggest"></div>
         </div>
         <div class="toggle-row" style="margin-bottom:10px;">
@@ -531,6 +569,21 @@
         </select>
       </div>
 
+      <div class="field">
+        <label>Manual editing</label>
+        <div class="toggle-row">
+          <button class="btn small" id="dragRouteToggleBtn">✋ Drag Route</button>
+          <button class="btn small" id="segmentModeToggleBtn">📐 Select Segment</button>
+        </div>
+        <div class="hint-text" style="margin-top:6px;">
+          Drag Route: grab the line anywhere and drag it — release to snap onto the nearest real, rideable road and re-route just that section. Select Segment (experimental): a 4-tap flow — tap a start point, then an end point, to mark a stretch (nothing changes yet). Then tap two detour points, snapped specifically onto nearby unpaved ground — the recalculation only happens once both are set, rerouting that stretch through them. If that makes the route longer than your original target, the new distance simply replaces it.
+        </div>
+        <button class="btn small" id="cleanupDeadEndsBtn" style="width:100%;margin-top:10px;" disabled>🧹 Clean up dead-ends</button>
+        <div class="hint-text" style="margin-top:6px;">
+          Trims any out-and-back stretches from the route you're currently looking at — a pure geometry cleanup, no re-routing, so the rest of the route can't shift or change.
+        </div>
+      </div>
+
       <button class="btn primary" id="generateBtn">Generate Route</button>
       <div class="status" id="statusMsg"></div>
 
@@ -587,12 +640,54 @@
             <button class="admin-switch" id="toggleExplanations" data-on="false">OFF</button>
           </div>
           <div class="admin-note">Changes apply immediately and are visible above as soon as you toggle them.</div>
+
+          <div class="admin-stats-block">
+            <div class="admin-stats-header">
+              <span>Usage stats</span>
+              <button class="btn small" id="refreshStatsBtn">↻ Refresh</button>
+            </div>
+            <div class="admin-stats-row"><span>App opens</span><span id="statVisits">—</span></div>
+            <div class="admin-stats-row"><span>Unique devices</span><span id="statDevices">—</span></div>
+            <div class="admin-stats-row"><span>Routes generated</span><span id="statRoutes">—</span></div>
+            <div class="admin-note" id="statsError"></div>
+          </div>
         </div>
       </div>
     </div>
 
     <main class="mapwrap">
       <div id="map"></div>
+      <div id="mapLoadingOverlay">
+        <svg class="loading-logo" viewBox="0 0 220 150" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="0,120 35,68 62,95 100,45 140,92 180,62 220,100 220,150 0,150" fill="#1d2c23"/>
+          <polygon points="60,120 90,72 112,95 145,58 180,100 180,150 60,150" fill="#16221b"/>
+          <line x1="0" y1="121" x2="220" y2="121" stroke="#3a4a3f" stroke-width="2" stroke-dasharray="5 4"/>
+          <g stroke="#d9b556" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="78" y1="121" x2="112" y2="86"/>
+            <line x1="112" y1="86" x2="142" y2="121"/>
+            <line x1="78" y1="121" x2="142" y2="121"/>
+            <line x1="112" y1="86" x2="100" y2="74"/>
+            <line x1="100" y1="74" x2="86" y2="74"/>
+            <line x1="142" y1="121" x2="130" y2="80"/>
+            <line x1="130" y1="80" x2="147" y2="76"/>
+          </g>
+          <g class="loading-wheel">
+            <circle cx="78" cy="121" r="19" fill="none" stroke="#c1611d" stroke-width="4.5"/>
+            <line x1="78" y1="102" x2="78" y2="140" stroke="#c1611d" stroke-width="2"/>
+            <line x1="59" y1="121" x2="97" y2="121" stroke="#c1611d" stroke-width="2"/>
+            <line x1="65" y1="108" x2="91" y2="134" stroke="#c1611d" stroke-width="2"/>
+            <line x1="65" y1="134" x2="91" y2="108" stroke="#c1611d" stroke-width="2"/>
+          </g>
+          <g class="loading-wheel">
+            <circle cx="142" cy="121" r="19" fill="none" stroke="#c1611d" stroke-width="4.5"/>
+            <line x1="142" y1="102" x2="142" y2="140" stroke="#c1611d" stroke-width="2"/>
+            <line x1="123" y1="121" x2="161" y2="121" stroke="#c1611d" stroke-width="2"/>
+            <line x1="129" y1="108" x2="155" y2="134" stroke="#c1611d" stroke-width="2"/>
+            <line x1="129" y1="134" x2="155" y2="108" stroke="#c1611d" stroke-width="2"/>
+          </g>
+        </svg>
+        <div class="loading-text">Building your course…</div>
+      </div>
       <div id="pegman" title="Drag onto the map (or tap, then tap the map) for Street View" draggable="true" style="display:none;">🧍</div>
       <div id="streetViewPip" style="display:none;">
         <div class="svp-header">
@@ -624,6 +719,8 @@
           <div class="elev-note" id="elevNote"></div>
           <svg id="elevSvg" viewBox="0 0 1000 100" preserveAspectRatio="none"></svg>
         </div>
+        <button class="btn" id="undoBtn" disabled title="Undo (up to 5 steps)">↶</button>
+        <button class="btn" id="redoBtn" disabled title="Redo (up to 5 steps)">↷</button>
         <button class="btn" id="clearRouteBtn" disabled>✕ Clear</button>
         <button class="btn primary" id="generateBtnMap">Generate Route</button>
         <button class="btn primary" id="downloadBtn" disabled>⬇ .gpx</button>
@@ -687,6 +784,30 @@
   // generated (see handleGenerateClick), revealing the map full-screen.
   if (detectMobile()) openSidebar();
 
+  /* ---------------- ANONYMOUS USAGE TRACKING ---------------- */
+  // A random per-browser ID in localStorage — not an account, not tied to
+  // any personal info, just enough to count "how many distinct devices"
+  // rather than "how many page loads". Fire-and-forget: never blocks or
+  // errors the app if the tracking endpoint is unavailable (e.g. this HTML
+  // opened standalone without the Vercel backend deployed).
+  function getDeviceId(){
+    var key = 'trailahead_device_id';
+    var id = localStorage.getItem(key);
+    if (!id){
+      id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,10);
+      try{ localStorage.setItem(key, id); } catch(e){}
+    }
+    return id;
+  }
+  var deviceId = getDeviceId();
+  function trackEvent(type){
+    fetch('/api/track', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ type:type, deviceId:deviceId })
+    }).catch(function(){}); // silently ignore — tracking never breaks the app
+  }
+  trackEvent('visit');
+
   // Mobile-only Hide/Show for the surface-breakdown legend — collapses just
   // the legend's body, leaving its small header (and, unaffected by any of
   // this, the Generate/.gpx/Clear buttons in the stat bar) in place.
@@ -709,6 +830,11 @@
     top10vWeights: { gravelroad:1.6, dirtroad:1.6, path:1.7 }, // adjustable; defaults reset per activity
     routeStyle: 'crisscross', // 'loop' | 'crisscross' | 'figure'
     figureShape: 'heart',
+    dragRouteMode: false,
+    segmentMode: false,
+    segmentPickStep: 0, // 0 = picking start next, 1 = picking end next
+    undoStack: [], // up to 5 past route snapshots
+    redoStack: [], // up to 5 undone route snapshots
     surface:"offroad",    // 'offroad' | 'mixed' | 'paved'
     difficulty:"junior",  // 'junior' | 'pro'
     distanceKm:40,
@@ -935,6 +1061,14 @@
       showStreetView(e.latlng.lat, e.latlng.lng);
       state.pickMode = null;
       document.getElementById('pegman').classList.remove('armed');
+    } else if (state.segmentMode && (state.segmentPickStep === 2 || state.segmentPickStep === 3)){
+      // Detour points can land anywhere near the route (a field track, a
+      // path off to the side) — not just exactly on the line itself, unlike
+      // the start/end taps which snap to the route. If this click happened
+      // ON the route line, handleSegmentPickClick already ran once via the
+      // line's own click binding and stopped propagation, so this branch
+      // only fires for clicks elsewhere on the map.
+      handleSegmentPickClick(e);
     }
   });
 
@@ -992,6 +1126,25 @@
 
   /* ---------------- GEOCODING (Nominatim) ---------------- */
   var geocodeTimers = {};
+  // Small "×" clear button inside each address field — shows only once
+  // there's text to clear, wipes the field, and runs an optional callback
+  // to also reset whatever that field actually controls (e.g. Start's own
+  // marker + selected coordinates, not just its text).
+  function wireClearButton(inputId, clearBtnId, onClear){
+    var input = document.getElementById(inputId);
+    var btn = document.getElementById(clearBtnId);
+    function refresh(){ btn.classList.toggle('show', input.value.length > 0); }
+    input._refreshClearBtn = refresh; // exposed so programmatic value changes (geocode picks, reverse-geocode) can re-check visibility too, since setting .value directly doesn't fire 'input'
+    input.addEventListener('input', refresh);
+    refresh();
+    btn.addEventListener('click', function(){
+      input.value = '';
+      refresh();
+      input.focus();
+      if (onClear) onClear();
+    });
+  }
+
   function wireGeocodeInput(inputId, listId, onPick){
     var input = document.getElementById(inputId);
     var list = document.getElementById(listId);
@@ -1010,6 +1163,7 @@
               div.textContent = r.display_name;
               div.addEventListener('click', function(){
                 input.value = r.display_name;
+                if (input._refreshClearBtn) input._refreshClearBtn();
                 list.style.display='none';
                 onPick(parseFloat(r.lat), parseFloat(r.lon), r.display_name);
               });
@@ -1029,7 +1183,7 @@
       .then(function(r){return r.json();})
       .then(function(d){
         var el = document.getElementById(inputId);
-        if (d && d.display_name) el.value = d.display_name;
+        if (d && d.display_name){ el.value = d.display_name; if (el._refreshClearBtn) el._refreshClearBtn(); }
       }).catch(function(){});
   }
 
@@ -1038,7 +1192,19 @@
   wireGeocodeInput('wpInput','wpSuggest', function(lat,lon,label){
     addWaypoint(lat,lon,label);
     document.getElementById('wpInput').value = '';
+    if (document.getElementById('wpInput')._refreshClearBtn) document.getElementById('wpInput')._refreshClearBtn();
   });
+
+  wireClearButton('startInput', 'startInputClear', function(){
+    state.start = null;
+    if (startMarker){ map.removeLayer(startMarker); startMarker = null; }
+    updateRadiusCircle();
+  });
+  wireClearButton('endInput', 'endInputClear', function(){
+    state.end = null;
+    if (endMarker){ map.removeLayer(endMarker); endMarker = null; }
+  });
+  wireClearButton('wpInput', 'wpInputClear'); // just clears the search text — added waypoints have their own ✕ per chip
 
   document.getElementById('startGeoBtn').addEventListener('click', function(){
     if (!navigator.geolocation){ setStatus('Geolocation not available in this browser.', true); return; }
@@ -1155,6 +1321,27 @@
     this.classList.toggle('active', state.radiusEnabled);
     document.getElementById('radiusField').style.display = state.radiusEnabled ? 'block' : 'none';
     updateRadiusCircle();
+  });
+  document.getElementById('dragRouteToggleBtn').addEventListener('click', function(){
+    state.dragRouteMode = !state.dragRouteMode;
+    if (state.dragRouteMode){
+      state.segmentMode = false;
+      document.getElementById('segmentModeToggleBtn').classList.remove('active');
+    }
+    this.classList.toggle('active', state.dragRouteMode);
+    if (routeLine) routeLine.setStyle({ cursor: state.dragRouteMode ? 'grab' : '' });
+    setStatus(state.dragRouteMode ? 'Drag Route is on — grab the line anywhere and drag it.' : '');
+  });
+  document.getElementById('segmentModeToggleBtn').addEventListener('click', function(){
+    state.segmentMode = !state.segmentMode;
+    if (state.segmentMode){
+      state.dragRouteMode = false;
+      document.getElementById('dragRouteToggleBtn').classList.remove('active');
+    } else {
+      clearSegmentMarkers();
+    }
+    this.classList.toggle('active', state.segmentMode);
+    setStatus(state.segmentMode ? 'Select Segment is on — tap a start point on the route.' : '');
   });
   document.getElementById('radiusSlider').addEventListener('input', function(){
     state.radiusKm = parseInt(this.value, 10);
@@ -1452,13 +1639,19 @@
   // like matching brackets — walking the route with a stack, a step back onto
   // the second-to-last visited spot cancels out (pops) the spike tip, however
   // deep it goes, leaving a clean route with that appendage cut out entirely.
-  function stripDeadEndSpikes(result){
+  function stripDeadEndSpikes(result, cellSizeM){
     var coords = result.coords, elevations = result.elevations, offroadFlags = result.offroadFlags;
     if (!coords || coords.length < 3) return result;
     var lat0 = coords[0][0];
     var mPerDegLat = 110574, mPerDegLon = 111320*Math.cos(lat0*Math.PI/180);
-    var cellSizeM = 15; // fine grid — catches farm-lane/track spikes without
-                        // merging genuinely separate, closely-spaced paths
+    cellSizeM = cellSizeM || 15; // fine grid by default — catches farm-lane/track
+                                  // spikes without merging genuinely separate,
+                                  // closely-spaced paths. A coarser grid (see
+                                  // rerouteFromViaSeq) additionally catches a
+                                  // dead-end reached via one street and left via
+                                  // a different, nearby parallel one — not a
+                                  // literal same-edge reversal, so the fine pass
+                                  // alone misses it.
     function cellKey(lat,lon){
       var x = lon*mPerDegLon, y = lat*mPerDegLat;
       return Math.round(x/cellSizeM) + ':' + Math.round(y/cellSizeM);
@@ -2086,6 +2279,7 @@
     result = stripDeadEndSpikes(result);
     result.backtrackKm = measureBacktrackKm(result.coords);
     result.usedWaypoints = true;
+    result.viaSeq = seq.slice();
 
     var attempts = 0;
     while (targetKm && result.distanceKm < targetKm*0.92 && attempts < 3){
@@ -2111,6 +2305,7 @@
       next = stripDeadEndSpikes(next);
       next.backtrackKm = measureBacktrackKm(next.coords);
       next.usedWaypoints = true;
+      next.viaSeq = seq.slice();
       result = next;
       attempts++;
     }
@@ -2193,6 +2388,7 @@
     result = stripDeadEndSpikes(result);
     result.backtrackKm = measureBacktrackKm(result.coords);
     result.usedFigure = figureKey;
+    result.viaSeq = seq.slice();
     return result;
   }
 
@@ -2289,6 +2485,7 @@
       result = stripDeadEndSpikes(result);
       result.backtrackKm = measureBacktrackKm(result.coords);
       result.usedTrailData = !!(trailVias && trailVias.some(function(v){return v;}));
+      result.viaSeq = coordSeq;
       candidates.push(result);
       if (isCleanEnough(result, targetKm, effMinOffroad)) return result;
       var ratio = targetKm / result.distanceKm;
@@ -2317,6 +2514,7 @@
     var direct = await routeSeq([[start.lat,start.lon],[end.lat,end.lon]], activity, surface, effMinOffroad);
     direct = stripDeadEndSpikes(direct);
     direct.backtrackKm = measureBacktrackKm(direct.coords);
+    direct.viaSeq = [[start.lat,start.lon],[end.lat,end.lon]];
     if (!targetKm || targetKm <= direct.distanceKm * 1.05){
       return { result: direct, note: (targetKm && targetKm < direct.distanceKm) ?
         'Requested distance is shorter than the direct route between these points — showing the direct route (' + direct.distanceKm.toFixed(1) + ' km).' : null };
@@ -2343,6 +2541,7 @@
         }
         result = stripDeadEndSpikes(result);
         result.backtrackKm = measureBacktrackKm(result.coords);
+        result.viaSeq = coordSeq;
         best = result;
         if (Math.abs(result.distanceKm - targetKm)/targetKm < 0.08) break;
         var ratio = (targetKm - direct.distanceKm) / Math.max(result.distanceKm - direct.distanceKm, 0.01);
@@ -2453,6 +2652,9 @@
     if (routeLine){ map.removeLayer(routeLine); routeLine = null; }
     surfaceOverlayLines.forEach(function(l){ map.removeLayer(l); });
     surfaceOverlayLines = [];
+    clearViaHandles();
+    if (dragPreviewLine){ map.removeLayer(dragPreviewLine); dragPreviewLine = null; }
+    if (typeof clearSegmentMarkers === 'function') clearSegmentMarkers();
     document.getElementById('mapLegend').style.display = 'none';
     document.getElementById('statDist').textContent = '— km';
     document.getElementById('statOffroad').textContent = '—';
@@ -2464,19 +2666,23 @@
     document.getElementById('elevSvg').innerHTML = '';
     document.getElementById('downloadBtn').disabled = true;
     document.getElementById('clearRouteBtn').disabled = true;
+    document.getElementById('cleanupDeadEndsBtn').disabled = true;
     state.route = null;
   }
   document.getElementById('clearRouteBtn').addEventListener('click', function(){
+    pushHistory();
     clearRoute();
     setStatus('');
   });
 
-  function renderRouteOnMap(coords, offroadFlags, surfacePct){
+  function renderRouteOnMap(coords, offroadFlags, surfacePct, keepView){
     if (routeLine) map.removeLayer(routeLine);
     surfaceOverlayLines.forEach(function(l){ map.removeLayer(l); });
     surfaceOverlayLines = [];
 
     routeLine = L.polyline(coords, {color:'#d9b556', weight:4, opacity:0.9}).addTo(map);
+    routeLine.on('mousedown', onRouteLineMouseDown);
+    routeLine.on('click', handleSegmentPickClick);
 
     var legend = document.getElementById('mapLegend');
     // Draw the unpaved/track stretches on top in blue, straight from the
@@ -2498,6 +2704,8 @@
             offroadKm += segKm;
             if (runPoints.length > 1){
               var l = L.polyline(runPoints, {color:'#3f9fd6', weight:5, opacity:0.95}).addTo(map);
+              l.on('mousedown', onRouteLineMouseDown); // blue overlays sit on top of the gold line and were silently swallowing the drag gesture without this
+              l.on('click', handleSegmentPickClick);
               surfaceOverlayLines.push(l);
             }
           } else {
@@ -2521,7 +2729,7 @@
       legend.style.display = 'none';
     }
 
-    map.fitBounds(routeLine.getBounds(), {padding:[40,40]});
+    if (!keepView) map.fitBounds(routeLine.getBounds(), {padding:[40,40]});
   }
 
   /* ---------------- GENERATE ---------------- */
@@ -2579,6 +2787,27 @@
   adminOverlay.addEventListener('click', function(e){
     if (e.target === adminOverlay) adminOverlay.classList.remove('open');
   });
+  function loadStats(){
+    var errEl = document.getElementById('statsError');
+    errEl.textContent = 'Loading…';
+    fetch('/api/stats')
+      .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, data:d }; }); })
+      .then(function(res){
+        if (res.ok){
+          document.getElementById('statVisits').textContent = res.data.visitsTotal;
+          document.getElementById('statDevices').textContent = res.data.uniqueDevices;
+          document.getElementById('statRoutes').textContent = res.data.routesTotal;
+          errEl.textContent = '';
+        } else {
+          errEl.textContent = res.data.error || 'Could not load stats.';
+        }
+      })
+      .catch(function(){
+        errEl.textContent = 'Could not reach /api/stats — this only works once deployed on Vercel with the Upstash Redis integration connected.';
+      });
+  }
+  document.getElementById('refreshStatsBtn').addEventListener('click', loadStats);
+
   function tryUnlock(){
     var pw = document.getElementById('adminPassword').value;
     if (pw === ADMIN_PASSWORD){
@@ -2589,6 +2818,7 @@
       setSwitch(document.getElementById('toggleTop10vWeights'), featureFlags.top10vWeights);
       setSwitch(document.getElementById('toggleRadiusLimit'), featureFlags.radiusLimit);
       setSwitch(document.getElementById('toggleExplanations'), featureFlags.explanations);
+      loadStats();
     } else {
       document.getElementById('adminError').textContent = 'Incorrect password.';
     }
@@ -2623,14 +2853,534 @@
     applyFeatureVisibility();
   });
 
+  // Renders the map/stats/chart from a route result — shared by both a
+  // fresh generation and a drag-to-adjust reroute, so the two stay in sync.
+  // Undo/redo — up to 5 steps each way. Every real route-changing action
+  // (a fresh Generate, a drag edit, an explicit Clear) snapshots whatever
+  // route existed right before it onto the undo stack; undo/redo themselves
+  // never push onto the stacks, so navigating history can't corrupt itself.
+  function cloneRouteSnapshot(route){
+    if (!route) return null;
+    return {
+      coords: route.coords ? route.coords.map(function(p){ return [p[0],p[1]]; }) : null,
+      distanceKm: route.distanceKm,
+      elevations: route.elevations ? route.elevations.slice() : null,
+      surfacePct: route.surfacePct,
+      offroadFlags: route.offroadFlags ? route.offroadFlags.slice() : null,
+      viaSeq: route.viaSeq ? route.viaSeq.map(function(p){ return [p[0],p[1]]; }) : null
+    };
+  }
+  function updateUndoRedoButtons(){
+    document.getElementById('undoBtn').disabled = state.undoStack.length === 0;
+    document.getElementById('redoBtn').disabled = state.redoStack.length === 0;
+  }
+  function pushHistory(){
+    if (!state.route) return; // nothing existed yet — nothing to save
+    state.undoStack.push(cloneRouteSnapshot(state.route));
+    if (state.undoStack.length > 5) state.undoStack.shift();
+    state.redoStack = []; // a genuinely new change invalidates any redo history
+    updateUndoRedoButtons();
+  }
+  async function undoRoute(){
+    if (!state.undoStack.length) return;
+    state.redoStack.push(cloneRouteSnapshot(state.route));
+    if (state.redoStack.length > 5) state.redoStack.shift();
+    var prev = state.undoStack.pop();
+    updateUndoRedoButtons();
+    if (prev && prev.coords){
+      await applyRouteResult(prev, null, true);
+    } else {
+      clearRoute(); // the snapshot before the very first route was "nothing"
+    }
+  }
+  async function redoRoute(){
+    if (!state.redoStack.length) return;
+    state.undoStack.push(cloneRouteSnapshot(state.route));
+    if (state.undoStack.length > 5) state.undoStack.shift();
+    var next = state.redoStack.pop();
+    updateUndoRedoButtons();
+    if (next && next.coords){
+      await applyRouteResult(next, null, true);
+    } else {
+      clearRoute(); // redoing back to a "nothing was generated yet" state
+    }
+  }
+  document.getElementById('undoBtn').addEventListener('click', undoRoute);
+  document.getElementById('redoBtn').addEventListener('click', redoRoute);
+
+  async function applyRouteResult(result, note, keepView){
+    state.route = { coords: result.coords, distanceKm: result.distanceKm, elevations: result.elevations || null, surfacePct: (typeof result.surfacePct === 'number' ? result.surfacePct : null), offroadFlags: result.offroadFlags || null, viaSeq: result.viaSeq || null };
+    renderRouteOnMap(result.coords, result.offroadFlags, result.surfacePct, keepView);
+    renderViaHandles(result.viaSeq);
+
+    document.getElementById('statDist').textContent = result.distanceKm.toFixed(1) + ' km';
+    if (typeof result.surfacePct === 'number'){
+      document.getElementById('statOffroad').textContent = result.surfacePct + '%';
+      document.getElementById('statOffroad').style.color = result.surfacePct >= 50 ? '#6b9c5b' : (result.surfacePct >= 20 ? '#d9b556' : '#c1611d');
+    } else {
+      document.getElementById('statOffroad').textContent = state.surface === 'paved' ? 'n/a' : '—';
+      document.getElementById('statOffroad').style.color = '';
+    }
+    document.getElementById('statGain').textContent = '…';
+    document.getElementById('statGrade').textContent = '…';
+    document.getElementById('elevNote').textContent = '';
+    document.getElementById('elevNote').className='elev-note';
+
+    var engineNote = result.fellBack ?
+      'Off-road trail router was unreachable — used standard road routing instead. ' :
+      (result.engineUsed ? '' : '');
+    var backtrackNote = (!note && result.backtrackKm >= 0.15) ?
+      ('Heads up — about ' + Math.round(result.backtrackKm*1000) + 'm of this ' + (keepView ? 'adjustment' : 'loop') + ' retraces the same path; the road/trail network near here didn\'t leave a fully non-repeating option. ') : '';
+    var surfaceNote = (state.surface === 'offroad' && state.activity !== 'road' && typeof result.surfacePct === 'number' && result.surfacePct < state.minOffroadPct && !result.fellBack) ?
+      ('Only ' + result.surfacePct + '% of this route is on tagged unpaved/track ways — short of the ' + state.minOffroadPct + '% you asked for. Tried several shapes and this was the best available; OpenStreetMap likely doesn\'t have enough off-road data mapped right around this start point. Try a start closer to farmland/forest tracks, a shorter loop, or lower the minimum. ') : '';
+    var radiusNote = (state.radiusEnabled && state.loopMode && !keepView && result.distanceKm < state.distanceKm*0.85) ?
+      ('Could only fit ' + result.distanceKm.toFixed(1) + ' km within your ' + state.radiusKm + ' km radius — a loop that far out and back to ' + state.distanceKm + ' km doesn\'t fit inside that circle. Widen the radius or shorten the target distance. ') : '';
+    var combinedNote = [note, backtrackNote, surfaceNote, radiusNote, engineNote].filter(Boolean).join(' ') || null;
+
+    setStatus(combinedNote || (keepView ? 'Route adjusted.' : 'Route plotted (' + (result.engineUsed||'') + (result.usedTrailData ? ', anchored on real trail data' : '') + ')') + (keepView ? '' : '. Reading elevation…'), false, !combinedNote);
+
+    try{
+      var elevations = state.route.elevations || await fetchElevations(result.coords);
+      state.route.elevations = elevations;
+      var g = computeGain(elevations);
+      var gradeMPerKm = g.gain / result.distanceKm;
+
+      document.getElementById('statGain').textContent = Math.round(g.gain) + ' m';
+      document.getElementById('statGrade').textContent = gradeMPerKm.toFixed(0);
+      drawElevationChart(elevations, result.distanceKm);
+
+      setStatus(combinedNote || (keepView ? 'Route adjusted.' : ('Route ready — ' + (result.engineUsed||'') + '.')), false, !combinedNote);
+    } catch(elevErr){
+      document.getElementById('statGain').textContent = '—';
+      document.getElementById('statGrade').textContent = '—';
+      document.getElementById('elevNote').textContent = 'Elevation data unavailable right now — route is still fully usable.';
+      setStatus(combinedNote || 'Route ready (no elevation data).', false, !combinedNote);
+    }
+
+    document.getElementById('downloadBtn').disabled = false;
+    document.getElementById('clearRouteBtn').disabled = false;
+    document.getElementById('cleanupDeadEndsBtn').disabled = false;
+    if (typeof drawSegmentHighlight === 'function') drawSegmentHighlight(); // keep the segment highlight in sync with whatever the route now looks like
+  }
+
+  // Recomputes the "% on unpaved/track" figure directly from the (possibly
+  // just-trimmed) coords + offroadFlags, rather than trusting the number
+  // BRouter reported before any cleanup — removing a paved out-and-back
+  // spur changes the true ratio, so this keeps the stat honest afterward.
+  function recomputeSurfacePct(coords, offroadFlags){
+    if (!offroadFlags || offroadFlags.length !== coords.length || coords.length < 2) return null;
+    var offKm = 0, totalKm = 0;
+    for (var i=1;i<coords.length;i++){
+      var d = haversineKm(coords[i-1], coords[i]);
+      totalKm += d;
+      if (offroadFlags[i]) offKm += d;
+    }
+    return totalKm > 0 ? Math.round((offKm/totalKm)*100) : null;
+  }
+
+  // Pure geometry cleanup on whatever route is currently on screen — no
+  // network call, no re-routing, so the route genuinely can't change
+  // anywhere except the dead-end stretches actually being trimmed.
+  async function cleanupDeadEnds(){
+    if (!state.route || !state.route.coords) return;
+    var before = state.route.distanceKm;
+    var working = {
+      coords: state.route.coords, elevations: state.route.elevations,
+      offroadFlags: state.route.offroadFlags, surfacePct: state.route.surfacePct
+    };
+    var cleaned = stripDeadEndSpikes(working);
+    cleaned = stripDeadEndSpikes(cleaned, 32);
+    cleaned.backtrackKm = measureBacktrackKm(cleaned.coords);
+    cleaned.viaSeq = state.route.viaSeq;
+    var recomputed = recomputeSurfacePct(cleaned.coords, cleaned.offroadFlags);
+    if (typeof recomputed === 'number') cleaned.surfacePct = recomputed;
+
+    var removedKm = before - cleaned.distanceKm;
+    if (removedKm < 0.02){
+      setStatus('No dead-ends found — this route was already clean.', false, true);
+      return;
+    }
+    pushHistory();
+    await applyRouteResult(cleaned, null, true);
+    setStatus('Cleaned up — removed about ' + Math.round(removedKm*1000) + 'm of out-and-back stretches. The rest of the route is unchanged.', false, true);
+  }
+  document.getElementById('cleanupDeadEndsBtn').addEventListener('click', cleanupDeadEnds);
+
+  // Finds nearby real, rideable road/track geometry appropriate for the
+  // current activity (Road → paved-ish road classes; Gravel → the same
+  // broad track/path/unclassified network the generator itself routes on)
+  // and snaps a dropped point onto the closest one. This is what keeps a
+  // manual drag from landing on an arbitrary field coordinate that the
+  // router can only reach via a genuine dead-end spur.
+  async function snapToNearestRoad(lat, lon, activity){
+    var radiusM = 400;
+    var tagFilter = (activity === 'road')
+      ? 'way["highway"~"^(motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|service|cycleway)$"]'
+      : 'way["highway"~"^(track|path|bridleway|unclassified|residential|service|tertiary|secondary|primary|cycleway)$"]';
+    var query = '[out:json][timeout:10];(' + tagFilter + '(around:' + radiusM + ',' + lat + ',' + lon + '););out geom;';
+    try{
+      var r = await fetchWithTimeout('https://overpass-api.de/api/interpreter', {
+        method:'POST', headers:{'Content-Type':'text/plain'}, body: query
+      }, 6000);
+      if (!r.ok) throw new Error('snap lookup failed');
+      var data = await r.json();
+      // "service" roads (loading docks, driveways, parking access) are the
+      // single biggest source of dead-ends in industrial/commercial areas —
+      // snapping to the literal nearest point often meant snapping straight
+      // onto one. Penalize them (worth ~150m of extra "distance") so a real
+      // through-road nearby wins; only fall back to a service road if
+      // nothing else is anywhere close.
+      var best = null, bestScore = Infinity;
+      (data.elements || []).forEach(function(e){
+        if (e.type !== 'way' || !e.geometry) return;
+        var isService = e.tags && e.tags.highway === 'service';
+        var penalty = isService ? 0.15 : 0;
+        e.geometry.forEach(function(g){
+          var d = haversineKm([lat,lon], [g.lat,g.lon]);
+          var score = d + penalty;
+          if (score < bestScore){ bestScore = score; best = [g.lat,g.lon]; }
+        });
+      });
+      return best || [lat, lon]; // nothing nearby — fall back to the raw drop point
+    } catch(e){
+      return [lat, lon]; // never block a drag on a failed lookup
+    }
+  }
+
+  // Same idea as snapToNearestRoad, but specifically for the two detour
+  // points in Select Segment — those exist to route the segment through
+  // real off-road ground, so they snap to unpaved-tagged ways only, at a
+  // slightly wider radius (unpaved options are sparser than roads in
+  // general). Falls back to the general road snap if nothing unpaved is
+  // nearby, and says so honestly rather than silently landing on pavement.
+  async function snapToNearestUnpavedRoad(lat, lon, activity){
+    var radiusM = 550;
+    var tagFilter =
+      'way["highway"~"^(track|path|bridleway)$"](around:' + radiusM + ',' + lat + ',' + lon + ');' +
+      'way["surface"~"^(unpaved|gravel|fine_gravel|dirt|ground|compacted|earth|grass|sand|pebblestone)$"]["highway"](around:' + radiusM + ',' + lat + ',' + lon + ');' +
+      'way["tracktype"~"^(grade2|grade3|grade4|grade5)$"](around:' + radiusM + ',' + lat + ',' + lon + ');';
+    var query = '[out:json][timeout:10];(' + tagFilter + ');out geom;';
+    try{
+      var r = await fetchWithTimeout('https://overpass-api.de/api/interpreter', {
+        method:'POST', headers:{'Content-Type':'text/plain'}, body: query
+      }, 6000);
+      if (!r.ok) throw new Error('unpaved snap lookup failed');
+      var data = await r.json();
+      var best = null, bestD = Infinity;
+      (data.elements || []).forEach(function(e){
+        if (e.type !== 'way' || !e.geometry) return;
+        e.geometry.forEach(function(g){
+          var d = haversineKm([lat,lon], [g.lat,g.lon]);
+          if (d < bestD){ bestD = d; best = [g.lat,g.lon]; }
+        });
+      });
+      if (best) return { point: best, unpaved: true };
+    } catch(e){ /* fall through to the general road snap below */ }
+    var fallback = await snapToNearestRoad(lat, lon, activity);
+    return { point: fallback, unpaved: false };
+  }
+
+  // Drag-to-adjust: re-routes through the current via-point sequence (one
+  // point now moved) and re-renders — the rest of the route is untouched
+  // since only the segments touching the moved point can actually change.
+  // Keeps the current map view (no re-zoom/re-fit) so an edit doesn't yank
+  // the screen around.
+  async function rerouteFromViaSeq(){
+    if (!state.route || !state.route.viaSeq) return;
+    setStatus('Adjusting route…');
+    showMapLoading();
+    try{
+      var effMinOffroad = (state.surface === 'offroad' && state.activity !== 'road') ? state.minOffroadPct : undefined;
+      var result = await routeSeq(state.route.viaSeq, state.activity, state.surface, effMinOffroad);
+      result = stripDeadEndSpikes(result);       // fine pass: literal same-road reversals
+      result = stripDeadEndSpikes(result, 32);   // coarser pass: catches a dead-end reached
+                                                  // via one street and left via a different,
+                                                  // nearby parallel one — common in industrial/
+                                                  // commercial areas full of short service roads.
+                                                  // Only run on drag-edits, not fresh generation,
+                                                  // since Crisscross/Figure routes deliberately
+                                                  // cross close to themselves elsewhere.
+      result.backtrackKm = measureBacktrackKm(result.coords);
+      result.viaSeq = state.route.viaSeq;
+      pushHistory(); // save the pre-drag route so this edit can be undone
+      await applyRouteResult(result, null, true);
+    } catch(err){
+      setStatus('Could not reroute through that point: ' + err.message, true);
+    } finally {
+      hideMapLoading();
+    }
+  }
+
+  // Draggable handles on the via-points that actually shaped the route —
+  // grab one and drop it elsewhere to nudge that section without touching
+  // the rest. Skips the first/last point (start, or start again for a
+  // closed loop) since those already have their own dedicated pin.
+  var viaHandleMarkers = [];
+  function clearViaHandles(){
+    viaHandleMarkers.forEach(function(m){ map.removeLayer(m); });
+    viaHandleMarkers = [];
+  }
+  function viaHandleIcon(){
+    return L.divIcon({ className:'', html:'<div style="width:13px;height:13px;border-radius:50%;background:#eee7d6;border:2px solid #16221b;box-shadow:0 0 6px rgba(0,0,0,.6);cursor:grab;"></div>', iconSize:[13,13], iconAnchor:[6,6] });
+  }
+  // The raw via-point that was sent to the router often isn't exactly ON the
+  // final route — the router snaps it to the nearest real road/track, which
+  // can land a visible distance away, especially where roads are sparse.
+  // Placing the drag handle at the via-point's own coordinate made it look
+  // like it was floating off the route rather than part of it. Instead,
+  // find where the actual route line passes closest to that via-point and
+  // put the handle there — visually on the line, where dragging it "off
+  // the route" intuitively makes sense.
+  function nearestPointOnRoute(coords, target){
+    var best = coords[0], bestD = Infinity;
+    for (var i=0;i<coords.length;i++){
+      var d = haversineKm(target, coords[i]);
+      if (d < bestD){ bestD = d; best = coords[i]; }
+    }
+    return best;
+  }
+  function nearestIndexOnRoute(coords, target){
+    var bestIdx = 0, bestD = Infinity;
+    for (var i=0;i<coords.length;i++){
+      var d = haversineKm(target, coords[i]);
+      if (d < bestD){ bestD = d; bestIdx = i; }
+    }
+    return bestIdx;
+  }
+
+  // "Select Segment" mode (experimental, alongside Drag Route) — a 4-tap
+  // flow: tap a start and end point to mark the stretch (nothing is changed
+  // yet), then tap two detour points — snapped specifically to unpaved
+  // ground — to route that stretch through. Only once BOTH detour points
+  // are set does the recalculation happen. If the detour makes the route
+  // longer than the original target distance, that's fine — the actual
+  // resulting distance simply replaces the target, no capping or rejection.
+  var segmentStartPoint = null, segmentEndPoint = null;
+  var segmentStartMarker = null, segmentEndMarker = null, segmentHighlightLine = null;
+  var detour1Point = null, detour2Point = null;
+  var detour1Marker = null, detour2Marker = null;
+
+  function segmentFlagIcon(color, letter){
+    return L.divIcon({ className:'', html:'<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:'+color+';border:2px solid #eee7d6;box-shadow:0 0 8px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);color:#eee7d6;font-family:IBM Plex Mono,monospace;font-size:10px;font-weight:700;">'+letter+'</span></div>', iconSize:[20,20], iconAnchor:[10,18] });
+  }
+  function clearSegmentMarkers(){
+    if (segmentStartMarker){ map.removeLayer(segmentStartMarker); segmentStartMarker = null; }
+    if (segmentEndMarker){ map.removeLayer(segmentEndMarker); segmentEndMarker = null; }
+    if (segmentHighlightLine){ map.removeLayer(segmentHighlightLine); segmentHighlightLine = null; }
+    if (detour1Marker){ map.removeLayer(detour1Marker); detour1Marker = null; }
+    if (detour2Marker){ map.removeLayer(detour2Marker); detour2Marker = null; }
+    segmentStartPoint = null; segmentEndPoint = null;
+    detour1Point = null; detour2Point = null;
+    state.segmentPickStep = 0;
+  }
+  function drawSegmentHighlight(){
+    if (segmentHighlightLine){ map.removeLayer(segmentHighlightLine); segmentHighlightLine = null; }
+    if (!segmentStartPoint || !segmentEndPoint || !state.route || !state.route.coords) return;
+    var coords = state.route.coords;
+    var i0 = nearestIndexOnRoute(coords, segmentStartPoint);
+    var i1 = nearestIndexOnRoute(coords, segmentEndPoint);
+    var lo = Math.min(i0,i1), hi = Math.max(i0,i1);
+    var seg = coords.slice(lo, hi+1);
+    if (seg.length > 1){
+      segmentHighlightLine = L.polyline(seg, { color:'#eee7d6', weight:9, opacity:0.4 }).addTo(map);
+      segmentHighlightLine.bringToBack();
+    }
+  }
+  function insertIndexForPoint(pt, coords, viaSeq){
+    var idx = nearestIndexOnRoute(coords, pt);
+    var viaIdxAlongRoute = viaSeq.map(function(vp){ return nearestIndexOnRoute(coords, vp); });
+    var insertAt = viaSeq.length - 1;
+    for (var i=0;i<viaIdxAlongRoute.length-1;i++){
+      if (idx >= viaIdxAlongRoute[i] && idx <= viaIdxAlongRoute[i+1]){ insertAt = i+1; break; }
+    }
+    return insertAt;
+  }
+  async function handleSegmentPickClick(e){
+    if (!state.segmentMode || !state.route || !state.route.coords || !state.route.viaSeq) return;
+    L.DomEvent.stopPropagation(e);
+    var coords = state.route.coords;
+    var clickLatLng = [e.latlng.lat, e.latlng.lng];
+
+    if (state.segmentPickStep === 0){
+      // Step 1: mark the segment start — snapped to the existing route itself
+      clearSegmentMarkers();
+      var startIdx = nearestIndexOnRoute(coords, clickLatLng);
+      segmentStartPoint = coords[startIdx];
+      segmentStartMarker = L.marker(segmentStartPoint, { icon: segmentFlagIcon('#6b9c5b','S') }).addTo(map)
+        .bindTooltip('Segment start', { className:'pin-label' });
+      state.segmentPickStep = 1;
+      setStatus('Segment start set — tap an end point further along the route.');
+
+    } else if (state.segmentPickStep === 1){
+      // Step 2: mark the segment end — nothing about the route changes yet,
+      // this just defines and highlights the stretch you're about to replace
+      var endIdx = nearestIndexOnRoute(coords, clickLatLng);
+      segmentEndPoint = coords[endIdx];
+      segmentEndMarker = L.marker(segmentEndPoint, { icon: segmentFlagIcon('#c1611d','E') }).addTo(map)
+        .bindTooltip('Segment end', { className:'pin-label' });
+      drawSegmentHighlight();
+      state.segmentPickStep = 2;
+      setStatus('Segment marked. Now tap your first detour point — anywhere, it\'ll snap to nearby unpaved ground.');
+
+    } else if (state.segmentPickStep === 2){
+      // Step 3: first detour point — snaps to unpaved ground specifically
+      showMapLoading();
+      setStatus('Snapping detour point 1 to nearby unpaved ground…');
+      var snap1 = await snapToNearestUnpavedRoad(clickLatLng[0], clickLatLng[1], state.activity);
+      hideMapLoading();
+      detour1Point = snap1.point;
+      detour1Marker = L.marker(detour1Point, { icon: segmentFlagIcon('#3f9fd6','1') }).addTo(map)
+        .bindTooltip('Detour point 1' + (snap1.unpaved ? '' : ' (no unpaved ground nearby — used the closest road instead)'), { className:'pin-label' });
+      state.segmentPickStep = 3;
+      setStatus(snap1.unpaved ? 'First detour point set on unpaved ground. Tap the second detour point.' : 'No unpaved ground nearby that first point — fell back to the closest road. Tap the second detour point.');
+
+    } else {
+      // Step 4: second detour point — snap, THEN do the actual recalculation
+      showMapLoading();
+      setStatus('Snapping detour point 2 to nearby unpaved ground…');
+      var snap2 = await snapToNearestUnpavedRoad(clickLatLng[0], clickLatLng[1], state.activity);
+      detour2Point = snap2.point;
+      detour2Marker = L.marker(detour2Point, { icon: segmentFlagIcon('#3f9fd6','2') }).addTo(map)
+        .bindTooltip('Detour point 2' + (snap2.unpaved ? '' : ' (no unpaved ground nearby — used the closest road instead)'), { className:'pin-label' });
+      state.segmentPickStep = 0;
+
+      // Clear out any via-points that already sat inside the marked stretch,
+      // then rebuild it as Start → Detour 1 → Detour 2 → End, in that order.
+      var oldViaSeq = state.route.viaSeq;
+      var startRouteIdx = nearestIndexOnRoute(coords, segmentStartPoint);
+      var endRouteIdx = nearestIndexOnRoute(coords, segmentEndPoint);
+      var loIdx = Math.min(startRouteIdx, endRouteIdx), hiIdx = Math.max(startRouteIdx, endRouteIdx);
+      var viaSeq = [];
+      for (var vi=0; vi<oldViaSeq.length; vi++){
+        var isRouteBoundary = (vi === 0 || vi === oldViaSeq.length-1);
+        var vIdx = nearestIndexOnRoute(coords, oldViaSeq[vi]);
+        if (isRouteBoundary || vIdx < loIdx || vIdx > hiIdx) viaSeq.push(oldViaSeq[vi]);
+      }
+      var atStart = insertIndexForPoint(segmentStartPoint, coords, viaSeq);
+      // Insert all four in one block — order matches how the segment was
+      // walked (start→end) and how the detour points were tapped (1→2).
+      viaSeq.splice(atStart, 0, segmentStartPoint, detour1Point, detour2Point, segmentEndPoint);
+      state.route.viaSeq = viaSeq;
+
+      // No distance cap here on purpose — if the detour makes the route
+      // longer than the original target, the real resulting distance just
+      // becomes the new number shown; nothing gets rejected or reverted.
+      await rerouteFromViaSeq();
+      if (detour1Marker){ map.removeLayer(detour1Marker); detour1Marker = null; }
+      if (detour2Marker){ map.removeLayer(detour2Marker); detour2Marker = null; }
+      drawSegmentHighlight();
+      setStatus('Detour routed through both points — the segment now runs Start → Detour 1 → Detour 2 → End. Distance updated to match, even if that\'s more than your original target.', false, true);
+    }
+  }
+
+  // "Drag Route" mode: grab the line ANYWHERE — not just the round handles —
+  // and drag it in one continuous motion. mousedown on the line starts the
+  // gesture; mousemove shows a cheap live preview (no network calls) while
+  // the map itself is temporarily prevented from panning; mouseup snaps the
+  // drop point to a real nearby road for the current activity and re-routes
+  // that stretch immediately, keeping the map where it is.
+  var lineDragState = null;
+  var dragPreviewLine = null;
+
+  function onRouteLineMouseDown(e){
+    // Only Drag Route triggers a free drag now — Select Segment has its own
+    // explicit 4-tap flow (start, end, then two detour points), so letting a
+    // plain drag also fire mid-flow would conflict with those taps.
+    if (!state.dragRouteMode || !state.route || !state.route.viaSeq) return;
+    L.DomEvent.stopPropagation(e);
+    L.DomEvent.preventDefault(e);
+
+    var clickLatLng = [e.latlng.lat, e.latlng.lng];
+    var coords = state.route.coords;
+    var clickIdx = nearestIndexOnRoute(coords, clickLatLng);
+    var viaSeq = state.route.viaSeq;
+    var viaIdxAlongRoute = viaSeq.map(function(vp){ return nearestIndexOnRoute(coords, vp); });
+    var insertAt = viaSeq.length - 1; // default: just before the closing point
+    for (var i=0;i<viaIdxAlongRoute.length-1;i++){
+      if (clickIdx >= viaIdxAlongRoute[i] && clickIdx <= viaIdxAlongRoute[i+1]){ insertAt = i+1; break; }
+    }
+
+    lineDragState = { insertAt: insertAt, prev: viaSeq[insertAt-1], next: viaSeq[insertAt] };
+    map.dragging.disable(); // otherwise the map itself pans instead of the line moving
+    map.on('mousemove', onLineDragMove);
+    map.on('mouseup', onLineDragUp);
+    document.getElementById('map').style.cursor = 'grabbing';
+  }
+
+  function onLineDragMove(e){
+    if (!lineDragState) return;
+    if (dragPreviewLine) map.removeLayer(dragPreviewLine);
+    dragPreviewLine = L.polyline([lineDragState.prev, [e.latlng.lat, e.latlng.lng], lineDragState.next], {
+      color:'#eee7d6', weight:2, opacity:0.85, dashArray:'4 6'
+    }).addTo(map);
+  }
+
+  async function onLineDragUp(e){
+    map.off('mousemove', onLineDragMove);
+    map.off('mouseup', onLineDragUp);
+    map.dragging.enable();
+    document.getElementById('map').style.cursor = '';
+    if (dragPreviewLine){ map.removeLayer(dragPreviewLine); dragPreviewLine = null; }
+    if (!lineDragState) return;
+    var insertAt = lineDragState.insertAt;
+    lineDragState = null;
+
+    showMapLoading(); // show it the instant you let go — the snap lookup itself can take a moment, and it should never look like nothing is happening
+    setStatus('Snapping to a nearby rideable road…');
+    var snapped = await snapToNearestRoad(e.latlng.lat, e.latlng.lng, state.activity);
+    state.route.viaSeq.splice(insertAt, 0, snapped);
+    rerouteFromViaSeq(); // recalculates immediately on release
+  }
+
+  function renderViaHandles(viaSeq){
+    clearViaHandles();
+    if (!viaSeq || viaSeq.length < 3 || !state.route || !state.route.coords) return;
+    for (var i=1; i<viaSeq.length-1; i++){
+      (function(idx){
+        var displayPoint = nearestPointOnRoute(state.route.coords, viaSeq[idx]);
+        var marker = L.marker([displayPoint[0], displayPoint[1]], { icon: viaHandleIcon(), draggable:true, zIndexOffset:500 }).addTo(map)
+          .bindTooltip('Drag to adjust this part of the route', { className:'pin-label' });
+
+        // Live visual feedback while actively dragging — a cheap straight-line
+        // preview to this handle's immediate via-neighbours, no network calls,
+        // updates every frame of the gesture. The real routed reroute (with
+        // road-snapping) only fires once on drop.
+        marker.on('drag', function(e){
+          if (dragPreviewLine) map.removeLayer(dragPreviewLine);
+          var pos = e.target.getLatLng();
+          var prev = state.route.viaSeq[idx-1], next = state.route.viaSeq[idx+1];
+          dragPreviewLine = L.polyline([prev, [pos.lat,pos.lng], next], {
+            color:'#eee7d6', weight:2, opacity:0.8, dashArray:'4 6'
+          }).addTo(map);
+        });
+
+        marker.on('dragend', async function(e){
+          if (dragPreviewLine){ map.removeLayer(dragPreviewLine); dragPreviewLine = null; }
+          var pos = e.target.getLatLng();
+          showMapLoading();
+          setStatus('Snapping to a nearby rideable road…');
+          var snapped = await snapToNearestRoad(pos.lat, pos.lng, state.activity);
+          state.route.viaSeq[idx] = snapped;
+          rerouteFromViaSeq();
+        });
+        viaHandleMarkers.push(marker);
+      })(i);
+    }
+  }
+
+  function showMapLoading(){ document.getElementById('mapLoadingOverlay').classList.add('show'); }
+  function hideMapLoading(){ document.getElementById('mapLoadingOverlay').classList.remove('show'); }
+
   async function handleGenerateClick(){
     var genBtns = [document.getElementById('generateBtn'), document.getElementById('generateBtnMap')];
     if (!state.start){ setStatus('Set a start point first — type an address, use your location, or click the map.', true); return; }
     if (!state.loopMode && !state.end){ setStatus('Set a finish point, or switch to Loop mode.', true); return; }
 
     genBtns.forEach(function(b){ b.disabled = true; });
+    pushHistory(); // save whatever route existed before this new generation
     clearRoute(); // wipe any previous route before starting a new one
     setStatus('Plotting route…');
+    showMapLoading();
 
     try{
       var result, note=null;
@@ -2644,60 +3394,14 @@
       }
       if (!result) throw new Error('could not find a route there — try a different start, activity, or a shorter distance.');
 
-      state.route = { coords: result.coords, distanceKm: result.distanceKm, elevations: result.elevations || null, surfacePct: (typeof result.surfacePct === 'number' ? result.surfacePct : null), offroadFlags: result.offroadFlags || null };
-      renderRouteOnMap(result.coords, result.offroadFlags, result.surfacePct);
-
-      document.getElementById('statDist').textContent = result.distanceKm.toFixed(1) + ' km';
-      if (typeof result.surfacePct === 'number'){
-        document.getElementById('statOffroad').textContent = result.surfacePct + '%';
-        document.getElementById('statOffroad').style.color = result.surfacePct >= 50 ? '#6b9c5b' : (result.surfacePct >= 20 ? '#d9b556' : '#c1611d');
-      } else {
-        document.getElementById('statOffroad').textContent = state.surface === 'paved' ? 'n/a' : '—';
-        document.getElementById('statOffroad').style.color = '';
-      }
-      document.getElementById('statGain').textContent = '…';
-      document.getElementById('statGrade').textContent = '…';
-      document.getElementById('elevNote').textContent = '';
-      document.getElementById('elevNote').className='elev-note';
-
-      var engineNote = result.fellBack ?
-        'Off-road trail router was unreachable — used standard road routing instead. ' :
-        (result.engineUsed ? '' : '');
-      var backtrackNote = (!note && result.backtrackKm >= 0.15) ?
-        ('Heads up — about ' + Math.round(result.backtrackKm*1000) + 'm of this loop retraces the same path; the road/trail network near here didn\'t leave a fully non-repeating option. ') : '';
-      var surfaceNote = (state.surface === 'offroad' && state.activity !== 'road' && typeof result.surfacePct === 'number' && result.surfacePct < state.minOffroadPct && !result.fellBack) ?
-        ('Only ' + result.surfacePct + '% of this route is on tagged unpaved/track ways — short of the ' + state.minOffroadPct + '% you asked for. Tried several shapes and this was the best available; OpenStreetMap likely doesn\'t have enough off-road data mapped right around this start point. Try a start closer to farmland/forest tracks, a shorter loop, or lower the minimum. ') : '';
-      var radiusNote = (state.radiusEnabled && state.loopMode && result.distanceKm < state.distanceKm*0.85) ?
-        ('Could only fit ' + result.distanceKm.toFixed(1) + ' km within your ' + state.radiusKm + ' km radius — a loop that far out and back to ' + state.distanceKm + ' km doesn\'t fit inside that circle. Widen the radius or shorten the target distance. ') : '';
-      var combinedNote = [note, backtrackNote, surfaceNote, radiusNote, engineNote].filter(Boolean).join(' ') || null;
-
-      setStatus(combinedNote || 'Route plotted (' + (result.engineUsed||'') + (result.usedTrailData ? ', anchored on real trail data' : '') + '). Reading elevation…', false, !combinedNote);
-
-      try{
-        var elevations = state.route.elevations || await fetchElevations(result.coords);
-        state.route.elevations = elevations;
-        var g = computeGain(elevations);
-        var gradeMPerKm = g.gain / result.distanceKm;
-
-        document.getElementById('statGain').textContent = Math.round(g.gain) + ' m';
-        document.getElementById('statGrade').textContent = gradeMPerKm.toFixed(0);
-        drawElevationChart(elevations, result.distanceKm);
-
-        setStatus(combinedNote || ('Route ready — ' + (result.engineUsed||'') + '.'), false, !combinedNote);
-      } catch(elevErr){
-        document.getElementById('statGain').textContent = '—';
-        document.getElementById('statGrade').textContent = '—';
-        document.getElementById('elevNote').textContent = 'Elevation data unavailable right now — route is still fully usable.';
-        setStatus(combinedNote || 'Route ready (no elevation data).', false, !combinedNote);
-      }
-
-      document.getElementById('downloadBtn').disabled = false;
-      document.getElementById('clearRouteBtn').disabled = false;
+      await applyRouteResult(result, note);
       if (detectMobile()) closeSidebar(); // reveal the map full-screen to show the result
+      trackEvent('route');
     } catch(err){
       setStatus('Could not build that route: ' + err.message, true);
     } finally {
       genBtns.forEach(function(b){ b.disabled = false; });
+      hideMapLoading();
     }
   }
   document.getElementById('generateBtn').addEventListener('click', handleGenerateClick);
@@ -2768,6 +3472,7 @@
         var r = results[0];
         var lat = parseFloat(r.lat), lon = parseFloat(r.lon);
         document.getElementById('startInput').value = r.display_name;
+        if (document.getElementById('startInput')._refreshClearBtn) document.getElementById('startInput')._refreshClearBtn();
         setStartMarker(lat, lon, r.display_name);
         map.setView([lat, lon], 12);
       })

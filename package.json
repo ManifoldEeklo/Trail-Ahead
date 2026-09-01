@@ -2,8 +2,11 @@
   "name": "trail-ahead",
   "version": "1.0.0",
   "private": true,
-  "description": "Trail-ahead — gravel/off-road route planner. Single static HTML app; all routing calls (BRouter, Valhalla, OSRM, Overpass, NGI Top10Vector, TOP10NL, Tragewegenregister) run directly from the browser to public APIs, so there's no server or build step.",
+  "description": "Trail-ahead — gravel/off-road route planner. Routing runs client-side against public APIs; two small serverless functions track anonymous usage stats via Upstash Redis.",
   "scripts": {
     "dev": "npx serve ."
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.38.3"
   }
 }
