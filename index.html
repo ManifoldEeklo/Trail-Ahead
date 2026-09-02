@@ -513,8 +513,8 @@
       <div class="field">
         <label>Activity</label>
         <div class="diff-select">
-          <div class="diff-btn sel" data-act="gravel">Gravel</div>
-          <div class="diff-btn" data-act="road">Road</div>
+          <div class="diff-btn" data-act="gravel">Gravel</div>
+          <div class="diff-btn sel" data-act="road">Road</div>
         </div>
       </div>
 
@@ -568,8 +568,8 @@
       <div class="field">
         <label>Route shape</label>
         <div class="diff-select" style="grid-template-columns:repeat(3,1fr);">
-          <div class="diff-btn" data-rs="loop">Loop</div>
-          <div class="diff-btn sel" data-rs="crisscross">Crisscross</div>
+          <div class="diff-btn sel" data-rs="loop">Loop</div>
+          <div class="diff-btn" data-rs="crisscross">Crisscross</div>
           <div class="diff-btn" data-rs="figure">Figure</div>
         </div>
         <div class="hint-text" style="margin-top:6px;">
@@ -585,8 +585,8 @@
       <div class="field">
         <label>Generation speed</label>
         <div class="diff-select">
-          <div class="diff-btn" data-mode="fast">⚡ Fast</div>
-          <div class="diff-btn sel" data-mode="detailed">Detailed</div>
+          <div class="diff-btn sel" data-mode="fast">⚡ Fast</div>
+          <div class="diff-btn" data-mode="detailed">Detailed</div>
         </div>
         <div class="hint-text" style="margin-top:6px;">
           Detailed anchors the route on real trail data from several sources and tries several shapes before settling — best off-road quality, a bit slower. Fast skips that groundwork and takes the first result — noticeably quicker, at the cost of less-refined trail selection and distance accuracy.
@@ -847,16 +847,16 @@
     start:null,          // {lat,lon,label}
     end:null,            // {lat,lon,label}
     loopMode:true,
-    activity:"gravel",
+    activity:"road",
     minOffroadPct:30,
     radiusEnabled:false,
     radiusKm:5,
     radiusSoftness:0.6,
     top10vWeights: { gravelroad:1.6, dirtroad:1.6, path:1.7 }, // adjustable; defaults reset per activity
-    routeStyle: 'crisscross', // 'loop' | 'crisscross' | 'figure'
+    routeStyle: 'loop', // 'loop' | 'crisscross' | 'figure'
     figureShape: 'heart',
     dragRouteMode: false,
-    fastMode: false, // false = Detailed (current full-quality behavior), true = Fast
+    fastMode: true, // false = Detailed (current full-quality behavior), true = Fast
     maxElevEnabled: false,
     maxElevM: 500,
     segmentMode: false,
