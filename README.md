@@ -55,7 +55,16 @@ and `api/stats.js` are built for.
 - Redeploy (or it picks it up automatically) — the Admin panel's **Usage
   stats** block will now show real numbers.
 
-### 4. (Optional) Daily snapshot to a GitHub file
+### 4. (Optional) Turn on Vercel Web Analytics
+
+The page already ships the plain-HTML tracking snippet (no `@vercel/analytics`
+npm package needed for a static site like this one). It only starts sending
+data once you flip the switch:
+
+- Your Vercel project → **Analytics** tab → **Enable**.
+- That's it — page views start showing up in the dashboard on the next visit.
+
+### 5. (Optional) Daily snapshot to a GitHub file
 
 `api/cron-summary.js` runs once a day (see the `crons` entry in
 `vercel.json`) and appends `{date, visitsTotal, uniqueDevices, routesTotal}`

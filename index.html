@@ -8,6 +8,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fjalla+One&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- Vercel Web Analytics — plain-HTML/static-site install (no @vercel/analytics
+     package, no bundler needed here). Only activates once Web Analytics is
+     turned ON for this project in the Vercel dashboard (Project → Analytics
+     → Enable) — until then these tags are harmless no-ops. -->
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 <style>
   :root{
     --bg:#101a14;
@@ -580,6 +588,12 @@
           <option value="heart" selected>❤️ Heart</option>
           <option value="infinity">♾️ Infinity</option>
           <option value="circle">⭕ Circle</option>
+          <option value="star">⭐ Star</option>
+          <option value="triangle">🔺 Triangle</option>
+          <option value="square">⬛ Square</option>
+          <option value="diamond">🔷 Diamond</option>
+          <option value="arrow">⬆️ Arrow</option>
+          <option value="tree">🌲 Tree</option>
         </select>
       </div>
 
@@ -2414,6 +2428,44 @@
   // *impression* of the shape, not a precise drawing. Only shapes traceable
   // in one continuous stroke are included (a literal bicycle, with its two
   // separate wheel loops, doesn't fit that constraint and was left out).
+
+  // Regular-polygon radius in polar form — distance from center to a
+  // straight edge at angle theta, for an N-sided polygon rotated by
+  // phaseOffset. Used for triangle/square/diamond below.
+  function polygonRadius(theta, n, phaseOffset){
+    var t = theta + (phaseOffset||0);
+    var wedge = 2*Math.PI/n;
+    var innerAngle = Math.PI/n;
+    var t2 = ((t % wedge) + wedge) % wedge;
+    return Math.cos(innerAngle) / Math.cos(t2 - innerAngle);
+  }
+
+  // General-purpose sampler for any closed shape with straight edges —
+  // give it a list of corner vertices (implicitly closed back to the
+  // first) and it returns n points spaced evenly by arc length around the
+  // outline. Reusable for any future straight-edged shape, not just the
+  // arrow/tree below.
+  function sampleClosedPolyline(vertices, n){
+    var edges = [], total = 0;
+    for (var i=0;i<vertices.length;i++){
+      var a = vertices[i], b = vertices[(i+1)%vertices.length];
+      var len = Math.hypot(b[0]-a[0], b[1]-a[1]);
+      edges.push({ a:a, b:b, len:len, cum:total });
+      total += len;
+    }
+    var pts = [];
+    for (var i=0;i<n;i++){
+      var d = (i/n) * total;
+      var e = edges[edges.length-1];
+      for (var j=0;j<edges.length;j++){
+        if (d < edges[j].cum + edges[j].len){ e = edges[j]; break; }
+      }
+      var localT = e.len > 0 ? (d - e.cum) / e.len : 0;
+      pts.push([ e.a[0] + (e.b[0]-e.a[0])*localT, e.a[1] + (e.b[1]-e.a[1])*localT ]);
+    }
+    return pts;
+  }
+
   var FIGURE_SHAPES = {
     heart: function(n){
       var pts = [];
@@ -2442,6 +2494,66 @@
         pts.push([Math.cos(t), Math.sin(t)]);
       }
       return pts;
+    },
+    star: function(n){
+      // 5-point star: alternate outer/inner radius every 36°
+      var pts = [];
+      var spikes = 5, outerR = 1, innerR = 0.42;
+      var total = spikes*2;
+      for (var i=0;i<n;i++){
+        var frac = i/n;
+        var idx = frac*total;
+        var i0 = Math.floor(idx) % total, i1 = (i0+1) % total;
+        var localT = idx - Math.floor(idx);
+        var a0 = (i0/total)*Math.PI*2 - Math.PI/2, a1 = (i1/total)*Math.PI*2 - Math.PI/2;
+        var r0 = (i0%2===0) ? outerR : innerR, r1 = (i1%2===0) ? outerR : innerR;
+        var r = r0 + (r1-r0)*localT, a = a0 + (a1-a0)*localT;
+        pts.push([r*Math.cos(a), r*Math.sin(a)]);
+      }
+      return pts;
+    },
+    triangle: function(n){
+      var pts = [];
+      for (var i=0;i<n;i++){
+        var t = (i/n)*Math.PI*2 - Math.PI/2; // one vertex pointing up
+        var r = polygonRadius(t, 3, 0);
+        pts.push([r*Math.cos(t), r*Math.sin(t)]);
+      }
+      return pts;
+    },
+    square: function(n){
+      var pts = [];
+      for (var i=0;i<n;i++){
+        var t = (i/n)*Math.PI*2;
+        var r = polygonRadius(t, 4, Math.PI/4); // flat sides facing up/down/left/right
+        pts.push([r*Math.cos(t), r*Math.sin(t)]);
+      }
+      return pts;
+    },
+    diamond: function(n){
+      var pts = [];
+      for (var i=0;i<n;i++){
+        var t = (i/n)*Math.PI*2;
+        var r = polygonRadius(t, 4, 0); // points facing up/down/left/right
+        pts.push([r*Math.cos(t), r*Math.sin(t)]);
+      }
+      return pts;
+    },
+    arrow: function(n){
+      // simple upward arrow: triangular head + rectangular shaft
+      return sampleClosedPolyline([
+        [0,1], [0.55,0.3], [0.25,0.3], [0.25,-1],
+        [-0.25,-1], [-0.25,0.3], [-0.55,0.3]
+      ], n);
+    },
+    tree: function(n){
+      // stylised 2-tier pine tree with a small trunk notch — seasonal, but
+      // works year-round as just "a tree"
+      return sampleClosedPolyline([
+        [0,1], [0.35,0.4], [0.18,0.4], [0.55,-0.15], [0.18,-0.15],
+        [0.18,-0.5], [0.18,-0.8], [-0.18,-0.8], [-0.18,-0.5], [-0.18,-0.15],
+        [-0.55,-0.15], [-0.18,0.4], [-0.35,0.4]
+      ], n);
     }
   };
 
