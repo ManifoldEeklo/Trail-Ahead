@@ -364,6 +364,7 @@
   body.is-mobile .elevchart{width:100%;height:70px;}
   body.is-mobile #downloadBtn, body.is-mobile #clearRouteBtn, body.is-mobile #generateBtnMap{flex:1 1 auto;width:auto;margin:8px;}
   body.is-mobile #undoBtn, body.is-mobile #redoBtn{flex:0 0 auto;margin:8px 2px;}
+  body.is-mobile #manualEditingField{display:none;} /* Drag Route / Select Segment rely on precise mouse-drag gestures not yet tuned for touch — hidden on mobile until that's solid */
 </style>
 </head>
 <body>
@@ -594,7 +595,7 @@
       </div>
 
 
-      <div class="field">
+      <div class="field" id="manualEditingField">
         <label>Manual editing</label>
         <div class="toggle-row">
           <button class="btn small" id="dragRouteToggleBtn">✋ Drag Route</button>
