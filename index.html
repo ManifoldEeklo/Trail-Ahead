@@ -228,6 +228,8 @@
   .diff-btn[data-d="pro"].sel{background:var(--hard);color:#1b0e04;border-color:var(--hard);}
   .diff-btn[data-rs].sel{background:var(--gold);color:#231a05;border-color:var(--gold);}
   .diff-btn[data-act].sel{background:var(--accent);color:#150c05;border-color:var(--accent);}
+  .diff-btn[data-mode="fast"].sel{background:var(--gold);color:#231a05;border-color:var(--gold);}
+  .diff-btn[data-mode="detailed"].sel{background:var(--panel-alt);color:var(--text);border-color:var(--text-muted);}
 
   .status{font-size:12px;color:var(--text-muted);margin-top:10px;min-height:16px;line-height:1.5;}
   .status.err{color:#e08a7d;}
@@ -450,6 +452,17 @@
         </div>
       </div>
 
+      <div class="toggle-row" style="margin-top:8px;">
+        <button class="btn small" id="maxElevToggleBtn">🏔 Max Alt</button>
+      </div>
+      <div class="field" id="maxElevField" style="display:none;margin-top:10px;">
+        <label>Maximum elevation gain <span class="unit" id="maxElevVal">500 m</span></label>
+        <input type="range" id="maxElevSlider" min="100" max="3000" value="500" step="50" class="accent">
+        <div class="hint-text" style="margin-top:6px;">
+          Caps total climbing for the loop as an upper limit — the generator compares a few shapes and picks whichever climbs the MOST while still staying under this number, so hilly areas actually get used rather than settling for the first flat-ish option that happens to fit.
+        </div>
+      </div>
+
       <div class="divider"></div>
 
       <div class="section-label">Finish</div>
@@ -570,13 +583,25 @@
       </div>
 
       <div class="field">
+        <label>Generation speed</label>
+        <div class="diff-select">
+          <div class="diff-btn" data-mode="fast">⚡ Fast</div>
+          <div class="diff-btn sel" data-mode="detailed">Detailed</div>
+        </div>
+        <div class="hint-text" style="margin-top:6px;">
+          Detailed anchors the route on real trail data from several sources and tries several shapes before settling — best off-road quality, a bit slower. Fast skips that groundwork and takes the first result — noticeably quicker, at the cost of less-refined trail selection and distance accuracy.
+        </div>
+      </div>
+
+
+      <div class="field">
         <label>Manual editing</label>
         <div class="toggle-row">
           <button class="btn small" id="dragRouteToggleBtn">✋ Drag Route</button>
           <button class="btn small" id="segmentModeToggleBtn">📐 Select Segment</button>
         </div>
         <div class="hint-text" style="margin-top:6px;">
-          Drag Route: grab the line anywhere and drag it — release to snap onto the nearest real, rideable road and re-route just that section. Select Segment (experimental): a 4-tap flow — tap a start point, then an end point, to mark a stretch (nothing changes yet). Then tap two detour points, snapped specifically onto nearby unpaved ground — the recalculation only happens once both are set, rerouting that stretch through them. If that makes the route longer than your original target, the new distance simply replaces it.
+          Drag Route: grab the line anywhere and drag it — release to snap onto the nearest real, rideable road and re-route just that section. Select Segment (experimental): tap a start point then an end point — that stretch is immediately cleared and locked in, and you can drag anywhere inside it right away, no other toggle needed. Drags inside a selected segment prefer unpaved ground; the rest of the route stays protected.
         </div>
         <button class="btn small" id="cleanupDeadEndsBtn" style="width:100%;margin-top:10px;" disabled>🧹 Clean up dead-ends</button>
         <div class="hint-text" style="margin-top:6px;">
@@ -831,6 +856,9 @@
     routeStyle: 'crisscross', // 'loop' | 'crisscross' | 'figure'
     figureShape: 'heart',
     dragRouteMode: false,
+    fastMode: false, // false = Detailed (current full-quality behavior), true = Fast
+    maxElevEnabled: false,
+    maxElevM: 500,
     segmentMode: false,
     segmentPickStep: 0, // 0 = picking start next, 1 = picking end next
     undoStack: [], // up to 5 past route snapshots
@@ -1061,14 +1089,6 @@
       showStreetView(e.latlng.lat, e.latlng.lng);
       state.pickMode = null;
       document.getElementById('pegman').classList.remove('armed');
-    } else if (state.segmentMode && (state.segmentPickStep === 2 || state.segmentPickStep === 3)){
-      // Detour points can land anywhere near the route (a field track, a
-      // path off to the side) — not just exactly on the line itself, unlike
-      // the start/end taps which snap to the route. If this click happened
-      // ON the route line, handleSegmentPickClick already ran once via the
-      // line's own click binding and stopped propagation, so this branch
-      // only fires for clicks elsewhere on the map.
-      handleSegmentPickClick(e);
     }
   });
 
@@ -1322,6 +1342,15 @@
     document.getElementById('radiusField').style.display = state.radiusEnabled ? 'block' : 'none';
     updateRadiusCircle();
   });
+  document.getElementById('maxElevToggleBtn').addEventListener('click', function(){
+    state.maxElevEnabled = !state.maxElevEnabled;
+    this.classList.toggle('active', state.maxElevEnabled);
+    document.getElementById('maxElevField').style.display = state.maxElevEnabled ? 'block' : 'none';
+  });
+  document.getElementById('maxElevSlider').addEventListener('input', function(){
+    state.maxElevM = parseInt(this.value, 10);
+    document.getElementById('maxElevVal').textContent = state.maxElevM + ' m';
+  });
   document.getElementById('dragRouteToggleBtn').addEventListener('click', function(){
     state.dragRouteMode = !state.dragRouteMode;
     if (state.dragRouteMode){
@@ -1381,6 +1410,13 @@
   });
   document.getElementById('figureSelect').addEventListener('change', function(){
     state.figureShape = this.value;
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-mode]'), function(btn){
+    btn.addEventListener('click', function(){
+      Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-mode]'), function(b){ b.classList.remove('sel'); });
+      btn.classList.add('sel');
+      state.fastMode = (btn.getAttribute('data-mode') === 'fast');
+    });
   });
 
   function setStatus(msg, isErr, isOk){
@@ -1587,50 +1623,76 @@
   // off-road bias). If both fall short, routeSeq still returns its best
   // attempt — it's buildLoop's job (see candidateScore) to keep searching
   // across several shapes and keep whichever actually measures highest.
+  // Routes the WHOLE via-point sequence in one combined request, exactly as
+  // fast as before. legBoundaries — knowing which stretch of the returned
+  // route belongs to which original via-point — is derived afterward with a
+  // SEQUENTIAL, order-respecting scan: each via-point after the first is
+  // only searched for from where the PREVIOUS via-point's match left off,
+  // never backward. Since via-points are visited in the order given, this
+  // can't lock onto an earlier pass of a route that crosses close to itself
+  // (Crisscross, Figure) — a plain independent nearest-match per via-point
+  // could, and did, which was the root cause of Select Segment repeatedly
+  // matching the wrong pass. Routing every leg as a fully separate request
+  // fixed that too, but cost real speed; this gets the same correctness
+  // property from a single request instead.
   async function routeSeq(coordsSeq, activity, surface, minOffroadPct){
+    var result;
     if (activity === 'road'){
-      var roadResult = await osrmRoute(coordsSeq, 'bike');
-      roadResult.engineUsed = 'OSRM · road (paved-preferring)';
-      roadResult.fellBack = false;
-      return roadResult;
-    }
-
-    var fellBack = false;
-    if (surface === 'offroad' || surface === 'mixed'){
-      var profile = BROUTER_PROFILE[surface][activity];
-      var brouterResult = null, brouterOk = false;
-      try{
-        brouterResult = await brouterRoute(coordsSeq, profile);
-        brouterResult.engineUsed = 'BRouter · ' + profile;
-        brouterResult.fellBack = false;
-        brouterOk = true;
-      } catch(e){
-        fellBack = true;
-      }
-
-      var threshold = (typeof minOffroadPct === 'number') ? minOffroadPct : 35;
-      var tooRoadHeavy = brouterOk && surface === 'offroad' &&
-        typeof brouterResult.surfacePct === 'number' && brouterResult.surfacePct < threshold;
-
-      if ((!brouterOk || tooRoadHeavy) && surface === 'offroad' && (activity === 'gravel' || activity === 'mtb')){
+      result = await osrmRoute(coordsSeq, 'bike');
+      result.engineUsed = 'OSRM · road (paved-preferring)';
+      result.fellBack = false;
+    } else {
+      var fellBack = false;
+      if (surface === 'offroad' || surface === 'mixed'){
+        var profile = BROUTER_PROFILE[surface][activity];
+        var brouterResult = null, brouterOk = false;
         try{
-          var vr = await valhallaMtbRoute(coordsSeq);
-          vr.engineUsed = 'Valhalla · Mountain bike';
-          vr.fellBack = false;
-          // Valhalla doesn't give us per-edge tags to measure directly, but its
-          // use_roads/avoid_bad_surfaces settings are explicitly tuned to bias
-          // hard away from pavement — when BRouter's own measured % was too
-          // low (or it failed outright), trust Valhalla's route over it.
-          return vr;
-        } catch(e2){ /* Valhalla also failed — fall through to whatever we have */ }
-      }
+          brouterResult = await brouterRoute(coordsSeq, profile);
+          brouterResult.engineUsed = 'BRouter · ' + profile;
+          brouterResult.fellBack = false;
+          brouterOk = true;
+        } catch(e){
+          fellBack = true;
+        }
 
-      if (brouterOk) return brouterResult;
+        var threshold = (typeof minOffroadPct === 'number') ? minOffroadPct : 35;
+        var tooRoadHeavy = brouterOk && surface === 'offroad' &&
+          typeof brouterResult.surfacePct === 'number' && brouterResult.surfacePct < threshold;
+
+        if ((!brouterOk || tooRoadHeavy) && surface === 'offroad' && (activity === 'gravel' || activity === 'mtb')){
+          try{
+            var vr = await valhallaMtbRoute(coordsSeq);
+            vr.engineUsed = 'Valhalla · Mountain bike';
+            vr.fellBack = false;
+            result = vr;
+          } catch(e2){ /* Valhalla also failed — fall through to whatever we have */ }
+        }
+        if (!result && brouterOk) result = brouterResult;
+      }
+      if (!result){
+        result = await osrmRoute(coordsSeq, pickProfile(activity));
+        result.engineUsed = fellBack ? 'OSRM (fallback)' : 'OSRM · ' + pickProfile(activity);
+        result.fellBack = fellBack;
+      }
     }
-    var result = await osrmRoute(coordsSeq, pickProfile(activity));
-    result.engineUsed = fellBack ? 'OSRM (fallback)' : 'OSRM · ' + pickProfile(activity);
-    result.fellBack = fellBack;
+
     return result;
+  }
+
+  function computeLegBoundariesSequential(coords, coordsSeq){
+    var boundaries = [0];
+    var searchFrom = 0;
+    for (var i=1; i<coordsSeq.length; i++){
+      var target = coordsSeq[i];
+      var bestIdx = searchFrom, bestD = Infinity;
+      for (var j=searchFrom; j<coords.length; j++){
+        var d = haversineKm(target, coords[j]);
+        if (d < bestD){ bestD = d; bestIdx = j; }
+      }
+      boundaries.push(bestIdx);
+      searchFrom = bestIdx; // never search backward for the NEXT via-point
+    }
+    return boundaries;
   }
 
   // Physically removes dead-end "spike" appendages from a route: any stretch
@@ -1660,6 +1722,7 @@
     var kept = [ coords[0] ];
     var keptElev = elevations ? [ elevations[0] ] : null;
     var keptFlags = offroadFlags ? [ offroadFlags[0] ] : null;
+    var origIdxStack = [0]; // tracks the ORIGINAL coords[] index behind each kept[] entry, in lockstep — lets legBoundaries be remapped afterward instead of going stale
 
     for (var i=1;i<coords.length;i++){
       var key = cellKey(coords[i][0], coords[i][1]);
@@ -1668,21 +1731,37 @@
         // stepped back onto the spot before the last one -> cancel the spike tip
         // — pop coords, elevations, AND the offroad flag in lockstep, so a
         // stripped spike can never leave an orphaned colored fragment behind
-        keys.pop(); kept.pop(); if (keptElev) keptElev.pop(); if (keptFlags) keptFlags.pop();
+        keys.pop(); kept.pop(); if (keptElev) keptElev.pop(); if (keptFlags) keptFlags.pop(); origIdxStack.pop();
       } else {
         keys.push(key); kept.push(coords[i]);
         if (keptElev) keptElev.push(elevations ? elevations[i] : undefined);
         if (keptFlags) keptFlags.push(offroadFlags ? offroadFlags[i] : false);
+        origIdxStack.push(i);
       }
     }
-    if (kept.length < 2) { kept = coords; keptElev = elevations; keptFlags = offroadFlags; } // safety net
+    if (kept.length < 2) { kept = coords; keptElev = elevations; keptFlags = offroadFlags; origIdxStack = coords.map(function(_,idx){ return idx; }); } // safety net
 
     var dist = 0;
     for (var j=1;j<kept.length;j++) dist += haversineKm(kept[j-1], kept[j]);
 
-    return { coords: kept, distanceKm: dist, elevations: keptElev,
+    var out = { coords: kept, distanceKm: dist, elevations: keptElev,
       engineUsed: result.engineUsed, fellBack: result.fellBack, surfacePct: result.surfacePct,
       offroadFlags: keptFlags };
+
+    if (result.legBoundaries){
+      // Remap each via-point's authoritative index through whatever got kept
+      // vs popped. A boundary point is very rarely itself part of a stripped
+      // spike (spikes are the geometry BETWEEN via-points), but if it ever is,
+      // fall back to the nearest surviving original index before it.
+      var origToNew = {};
+      for (var oi=0; oi<origIdxStack.length; oi++) origToNew[origIdxStack[oi]] = oi;
+      out.legBoundaries = result.legBoundaries.map(function(origIdx){
+        var probe = origIdx;
+        while (probe >= 0 && !(probe in origToNew)) probe--;
+        return probe >= 0 ? origToNew[probe] : 0;
+      });
+    }
+    return out;
   }
 
   // Detects "there-and-back" retracing: any road segment travelled in one
@@ -1762,7 +1841,10 @@
     if (activity === 'foot'){
       clauses.push('way["highway"~"^(path|footway|track|bridleway)$"]' + around + ';');
       clauses.push('way["surface"~"^(unpaved|gravel|fine_gravel|dirt|ground|compacted|earth|grass|sand|pebblestone)$"]["highway"]' + around + ';');
-      clauses.push('relation["route"~"^(hiking|foot)$"]' + around + ';>>;');
+      // Same reasoning as the gravel/MTB branch below: skipping the
+      // recursive route-relation pull (">>;") since it ignores the search
+      // radius once inside a matched relation and can be very slow — the
+      // tag-based clause above already covers hiking paths/tracks directly.
     } else { // gravel and mtb now share the same broad, technical-terrain query —
              // "Gravel" in the UI routes with MTB-grade settings throughout
       clauses.push('way["highway"~"^(track|path|bridleway)$"]' + around + ';');
@@ -1770,13 +1852,21 @@
       clauses.push('way["tracktype"~"^(grade2|grade3|grade4|grade5)$"]' + around + ';');
       clauses.push('way["mtb:scale"]' + around + ';');
       clauses.push('way["cycleway"="track"]["surface"!~"^(paved|asphalt|concrete|concrete:plates|paving_stones|sett)$"]' + around + ';');
-      clauses.push('relation["route"="mtb"]' + around + ';>>;');
+      // Deliberately NOT pulling MTB route relations here anymore — the
+      // recursive ">>;" needed to get a relation's member ways (and THEIR
+      // nodes) is one of the heaviest query patterns Overpass supports: it
+      // ignores the search radius once inside the relation, so a single
+      // matched route can drag in geometry many km away and make the whole
+      // gravel/MTB lookup noticeably slower. The tag-based clauses above
+      // already catch the same ground directly (track/path/surface/
+      // tracktype/mtb:scale), so this wasn't adding much real coverage for
+      // the cost.
     }
 
     var query = '[out:json][timeout:25];(' + clauses.join('') + ');out geom;';
     var r = await fetchWithTimeout('https://overpass-api.de/api/interpreter', {
       method: 'POST', headers: {'Content-Type':'text/plain'}, body: query
-    }, 7000);
+    }, 5000);
     if (!r.ok) throw new Error('trail data lookup failed');
     var data = await r.json();
     return (data.elements || [])
@@ -1805,7 +1895,7 @@
     if (flemishCycleLayerName !== undefined) return flemishCycleLayerName;
     try{
       var capUrl = 'https://geodata.toerismevlaanderen.be/geoserver/routes/wfs?service=WFS&version=2.0.0&request=GetCapabilities';
-      var r = await fetchWithTimeout(capUrl, null, 5000);
+      var r = await fetchWithTimeout(capUrl, null, 4000);
       if (!r.ok) throw new Error('capabilities unavailable');
       var text = await r.text();
       var names = (text.match(/<Name>routes:[^<]*<\/Name>/g) || []).map(function(m){ return m.replace(/<\/?Name>/g,''); });
@@ -1848,7 +1938,7 @@
       outputFormat:'application/json', srsName:'EPSG:4326', bbox: bbox
     }).toString();
 
-    var r = await fetchWithTimeout(url, null, 6000);
+    var r = await fetchWithTimeout(url, null, 4000);
     if (!r.ok) throw new Error('Flemish cycle network lookup failed');
     var data = await r.json();
     var ways = [];
@@ -1889,7 +1979,7 @@
     };
     if (cqlFilter) params.CQL_FILTER = cqlFilter;
     var url = TOP10V_WFS + '?' + new URLSearchParams(params).toString();
-    var r = await fetchWithTimeout(url, null, 5000);
+    var r = await fetchWithTimeout(url, null, 4000);
     if (!r.ok) throw new Error('Top10Vector ' + typeName + ' lookup failed');
     var data = await r.json();
     return (data.features || [])
@@ -1994,7 +2084,7 @@
     var bbox = [lon-dLon, lat-dLat, lon+dLon, lat+dLat].join(',');
 
     var url = TOP10NL_OGC + '?' + new URLSearchParams({ bbox: bbox, limit: '1000' }).toString();
-    var r = await fetchWithTimeout(url, null, 6000);
+    var r = await fetchWithTimeout(url, null, 4000);
     if (!r.ok) throw new Error('TOP10NL lookup failed');
     var data = await r.json();
     var ways = [];
@@ -2050,7 +2140,7 @@
     var cfg = TRAGE_WEGEN_PROVINCES[provinceKey];
     try{
       var capUrl = cfg.wfsBase + '?service=WFS&version=2.0.0&request=GetCapabilities';
-      var r = await fetchWithTimeout(capUrl, null, 5000);
+      var r = await fetchWithTimeout(capUrl, null, 4000);
       if (!r.ok) throw new Error('capabilities unavailable');
       var text = await r.text();
       var names = (text.match(/<Name>[^<]+<\/Name>/g) || []).map(function(m){ return m.replace(/<\/?Name>/g,''); });
@@ -2080,7 +2170,7 @@
       outputFormat:'application/json', srsName:'EPSG:4326', bbox: bbox
     }).toString();
 
-    var r = await fetchWithTimeout(url, null, 6000);
+    var r = await fetchWithTimeout(url, null, 4000);
     if (!r.ok) throw new Error('Trage Wegen (' + provinceKey + ') lookup failed');
     var data = await r.json();
     var ways = [];
@@ -2277,12 +2367,14 @@
     var seq = pointSeq.slice();
     var result = await routeSeq(seq, activity, surface, minOffroadPct);
     result = stripDeadEndSpikes(result);
+    result = stripDeadEndSpikes(result, 25);
     result.backtrackKm = measureBacktrackKm(result.coords);
     result.usedWaypoints = true;
     result.viaSeq = seq.slice();
 
     var attempts = 0;
-    while (targetKm && result.distanceKm < targetKm*0.92 && attempts < 3){
+    var maxPadAttempts = state.fastMode ? 1 : 3;
+    while (targetKm && result.distanceKm < targetKm*0.92 && attempts < maxPadAttempts){
       var gaps = [];
       for (var i=0;i<seq.length-1;i++){
         gaps.push({ idx:i, d: haversineKm(seq[i], seq[i+1]) });
@@ -2303,6 +2395,7 @@
         next = await routeSeq(seq, activity, surface, minOffroadPct);
       } catch(e){ break; }
       next = stripDeadEndSpikes(next);
+      next = stripDeadEndSpikes(next, 25);
       next.backtrackKm = measureBacktrackKm(next.coords);
       next.usedWaypoints = true;
       next.viaSeq = seq.slice();
@@ -2425,9 +2518,10 @@
     // tags, NGI's official Belgium-wide surface-verified topographic data
     // (Top10Vector), the Dutch equivalent (TOP10NL), the Flanders-wide
     // Tragewegenregister (car-free rural paths), and the regional cycling
-    // node network.
+    // node network. Skipped entirely in Fast mode — this is 4-5 parallel
+    // external lookups and is the single biggest chunk of generation time.
     var trailWays = [];
-    if (surface === 'offroad' && activity !== 'road'){
+    if (surface === 'offroad' && activity !== 'road' && !state.fastMode){
       var searchRadiusM = Math.min(Math.max(radius*1800, 1500), 9000);
       if (typeof maxRadiusKm === 'number') searchRadiusM = Math.min(searchRadiusM, maxRadiusKm*1000);
       var fetches = [
@@ -2445,12 +2539,21 @@
 
     // More attempts when actively hunting for a minimum off-road %, since
     // each attempt re-rolls the whole via-point shape — more tries means a
-    // better shot at a combination that actually clears the bar.
-    var maxAttempts = (typeof effMinOffroad === 'number') ? 9 : 6;
+    // better shot at a combination that actually clears the bar. Trimmed
+    // down from 9/6 — each attempt can cost two full routing calls (BRouter
+    // + a Valhalla second opinion when quality falls short), so this was
+    // the single biggest cost in Detailed mode. Still stops early the
+    // moment a genuinely clean candidate turns up (see isCleanEnough below),
+    // so a good result on attempt 1 or 2 doesn't wait for the rest anyway.
+    var maxAttempts = state.fastMode ? 1 : ((typeof effMinOffroad === 'number') ? 5 : 4);
 
     var crisscross = (routeStyle === 'crisscross');
 
-    for (var iter=0; iter<maxAttempts; iter++){
+    // One attempt, factored out so both the normal search loop AND the
+    // max-elevation refinement below (which needs a couple of EXTRA
+    // re-rolls only when the chosen route climbs too much) can reuse the
+    // exact same shape-generation logic.
+    async function tryOneCandidate(){
       var baseAngle = Math.random()*360; // re-roll shape/orientation each attempt
       // Build the sector angles in their natural, evenly-spaced order first —
       // then, for crisscross, shuffle the ORDER they get visited in (not the
@@ -2476,25 +2579,99 @@
         vias.push(destPoint(start.lat, start.lon, angle, Math.max(r,0.15)));
       }
       var coordSeq = [[start.lat,start.lon]].concat(vias).concat([[start.lat,start.lon]]);
-      var result;
-      try{
-        result = await routeSeq(coordSeq, activity, surface, effMinOffroad);
-      } catch(e){
-        continue;
-      }
-      result = stripDeadEndSpikes(result);
+      var result = await routeSeq(coordSeq, activity, surface, effMinOffroad);
+      result = stripDeadEndSpikes(result);      // fine pass: literal same-road reversals
+      // A moderate second pass — narrower than the 45m used for drag-edits,
+      // deliberately, since Crisscross/Figure shapes are SUPPOSED to cross
+      // close to themselves at real intersections here. A genuine crossing
+      // is a single point; a dead-end spike is a sustained out-and-back
+      // stretch reached via one road and left via a slightly different,
+      // parallel one (exactly what was still showing up near Lembeke) —
+      // 25m catches that without being wide enough to also swallow an
+      // intentional crisscross intersection.
+      result = stripDeadEndSpikes(result, 25);
       result.backtrackKm = measureBacktrackKm(result.coords);
       result.usedTrailData = !!(trailVias && trailVias.some(function(v){return v;}));
       result.viaSeq = coordSeq;
+      return result;
+    }
+
+    var chosen = null;
+    for (var iter=0; iter<maxAttempts; iter++){
+      var result;
+      try{ result = await tryOneCandidate(); } catch(e){ continue; }
       candidates.push(result);
-      if (isCleanEnough(result, targetKm, effMinOffroad)) return result;
+      if (isCleanEnough(result, targetKm, effMinOffroad)){ chosen = result; break; }
       var ratio = targetKm / result.distanceKm;
       radius = Math.max(radius * Math.pow(ratio, 0.85), 0.15);
       if (typeof maxRadiusKm === 'number') radius = Math.min(radius, maxRadiusKm * 0.85);
     }
-    if (!candidates.length) throw new Error('could not find a route there — try a different start, activity, or distance.');
-    candidates.sort(function(a,b){ return candidateScore(a,targetKm,effMinOffroad) - candidateScore(b,targetKm,effMinOffroad); });
-    return candidates[0];
+    if (!chosen){
+      if (!candidates.length) throw new Error('could not find a route there — try a different start, activity, or distance.');
+      candidates.sort(function(a,b){ return candidateScore(a,targetKm,effMinOffroad) - candidateScore(b,targetKm,effMinOffroad); });
+      chosen = candidates[0];
+    }
+
+    // Max elevation cap — checked AFTER the normal search, not during every
+    // attempt above, since fetching elevation is its own network call and
+    // doing that for every candidate would slow down generation for
+    // everyone, not just people who turned this on. Only re-rolls a couple
+    // more times if the chosen route actually climbs too much.
+    if (state.maxElevEnabled){
+      chosen = await enforceMaxElevation(chosen, tryOneCandidate, targetKm, effMinOffroad);
+    }
+    return chosen;
+  }
+
+  // Fetches elevation for the candidate the normal search already picked;
+  // if it's under the cap, done. If not, tries a couple more full re-rolls
+  // (same shape-generation logic, just a fresh random orientation each
+  // time) and keeps whichever comes closest to — or under — the limit.
+  // Caches elevations on whatever it returns so applyRouteResult doesn't
+  // have to fetch them again.
+  async function enforceMaxElevation(candidate, tryOneCandidate, targetKm, effMinOffroad){
+    var capM = state.maxElevM;
+    var extraTries = 2;
+    var pool = [candidate];
+
+    // Always gather a couple more shapes to compare against — not just when
+    // the first one exceeds the cap. A "maximum" is a ceiling to use UP TO,
+    // not a reason to stop at the first candidate that happens to land
+    // anywhere under it, which could leave a lot of the requested climbing
+    // budget on the table in genuinely hilly terrain.
+    for (var i=0; i<extraTries; i++){
+      var alt;
+      try{ alt = await tryOneCandidate(); } catch(e){ continue; }
+      if (!isCleanEnough(alt, targetKm, effMinOffroad)) continue; // don't trade away distance/off-road quality just to chase elevation
+      pool.push(alt);
+    }
+
+    for (var p=0; p<pool.length; p++){
+      var c = pool[p];
+      try{
+        c.elevations = c.elevations || await fetchElevations(c.coords);
+        c._gain = computeGain(c.elevations).gain;
+      } catch(e){
+        c._gain = null;
+      }
+    }
+    var withGain = pool.filter(function(c){ return typeof c._gain === 'number'; });
+    if (!withGain.length) { candidate.maxElevGain = null; return candidate; } // no elevation data anywhere — nothing to enforce
+
+    var underCap = withGain.filter(function(c){ return c._gain <= capM; });
+    var best;
+    if (underCap.length){
+      // Maximize climbing WITHIN the cap — use as much of the budget as
+      // the terrain and shapes tried actually offered.
+      best = underCap.reduce(function(a,b){ return b._gain > a._gain ? b : a; });
+    } else {
+      // Nothing tried stayed under the cap — take whichever overshoots the
+      // LEAST, and applyRouteResult's note will say so honestly rather than
+      // silently exceeding the limit without comment.
+      best = withGain.reduce(function(a,b){ return b._gain < a._gain ? b : a; });
+    }
+    best.maxElevGain = best._gain;
+    return best;
   }
 
   // Point-to-point with a target distance longer than the direct route: tries
@@ -2513,6 +2690,7 @@
 
     var direct = await routeSeq([[start.lat,start.lon],[end.lat,end.lon]], activity, surface, effMinOffroad);
     direct = stripDeadEndSpikes(direct);
+    direct = stripDeadEndSpikes(direct, 25);
     direct.backtrackKm = measureBacktrackKm(direct.coords);
     direct.viaSeq = [[start.lat,start.lon],[end.lat,end.lon]];
     if (!targetKm || targetKm <= direct.distanceKm * 1.05){
@@ -2523,14 +2701,18 @@
     var mid = [(start.lat+end.lat)/2, (start.lon+end.lon)/2];
     var brng = bearingBetween([start.lat,start.lon],[end.lat,end.lon]);
     var extra = targetKm - direct.distanceKm;
-    var shapes = [ {side:1,off:90}, {side:-1,off:90}, {side:1,off:60}, {side:-1,off:60} ];
+    // Fast mode: try only the first shape, one shot, no refinement — the
+    // 4-shapes × 3-refinements loop below is the main cost for a stretched
+    // point-to-point route.
+    var shapes = state.fastMode ? [ {side:1,off:90} ] : [ {side:1,off:90}, {side:-1,off:90}, {side:1,off:60}, {side:-1,off:60} ];
+    var maxIter = state.fastMode ? 1 : 3;
     var candidates = [];
 
     for (var s=0; s<shapes.length; s++){
       var side = shapes[s].side, bOff = shapes[s].off;
       var offset = extra / 2.2;
       var best = null;
-      for (var iter=0; iter<3; iter++){
+      for (var iter=0; iter<maxIter; iter++){
         var viaPoint = destPoint(mid[0], mid[1], brng + bOff*side, Math.max(offset,0.2));
         var coordSeq = [[start.lat,start.lon], viaPoint, [end.lat,end.lon]];
         var result;
@@ -2540,6 +2722,7 @@
           break;
         }
         result = stripDeadEndSpikes(result);
+        result = stripDeadEndSpikes(result, 25);
         result.backtrackKm = measureBacktrackKm(result.coords);
         result.viaSeq = coordSeq;
         best = result;
@@ -2867,7 +3050,8 @@
       elevations: route.elevations ? route.elevations.slice() : null,
       surfacePct: route.surfacePct,
       offroadFlags: route.offroadFlags ? route.offroadFlags.slice() : null,
-      viaSeq: route.viaSeq ? route.viaSeq.map(function(p){ return [p[0],p[1]]; }) : null
+      viaSeq: route.viaSeq ? route.viaSeq.map(function(p){ return [p[0],p[1]]; }) : null,
+      legBoundaries: route.legBoundaries ? route.legBoundaries.slice() : null
     };
   }
   function updateUndoRedoButtons(){
@@ -2909,7 +3093,12 @@
   document.getElementById('redoBtn').addEventListener('click', redoRoute);
 
   async function applyRouteResult(result, note, keepView){
-    state.route = { coords: result.coords, distanceKm: result.distanceKm, elevations: result.elevations || null, surfacePct: (typeof result.surfacePct === 'number' ? result.surfacePct : null), offroadFlags: result.offroadFlags || null, viaSeq: result.viaSeq || null };
+    // Computed here, exactly once, on the actual final chosen result — not
+    // inside routeSeq, which used to run this on EVERY attempt in Detailed
+    // mode (up to 5), including the ones that get discarded. Only the
+    // result that actually makes it here needs it.
+    var legBoundaries = result.legBoundaries || computeLegBoundariesSequential(result.coords, result.viaSeq || [result.coords[0], result.coords[result.coords.length-1]]);
+    state.route = { coords: result.coords, distanceKm: result.distanceKm, elevations: result.elevations || null, surfacePct: (typeof result.surfacePct === 'number' ? result.surfacePct : null), offroadFlags: result.offroadFlags || null, viaSeq: result.viaSeq || null, legBoundaries: legBoundaries };
     renderRouteOnMap(result.coords, result.offroadFlags, result.surfacePct, keepView);
     renderViaHandles(result.viaSeq);
 
@@ -2935,9 +3124,19 @@
       ('Only ' + result.surfacePct + '% of this route is on tagged unpaved/track ways — short of the ' + state.minOffroadPct + '% you asked for. Tried several shapes and this was the best available; OpenStreetMap likely doesn\'t have enough off-road data mapped right around this start point. Try a start closer to farmland/forest tracks, a shorter loop, or lower the minimum. ') : '';
     var radiusNote = (state.radiusEnabled && state.loopMode && !keepView && result.distanceKm < state.distanceKm*0.85) ?
       ('Could only fit ' + result.distanceKm.toFixed(1) + ' km within your ' + state.radiusKm + ' km radius — a loop that far out and back to ' + state.distanceKm + ' km doesn\'t fit inside that circle. Widen the radius or shorten the target distance. ') : '';
-    var combinedNote = [note, backtrackNote, surfaceNote, radiusNote, engineNote].filter(Boolean).join(' ') || null;
+    var maxElevNote = (state.maxElevEnabled && typeof result.maxElevGain === 'number' && result.maxElevGain > state.maxElevM) ?
+      ('Could not keep this route under ' + state.maxElevM + 'm of climbing — tried a few shapes and ' + Math.round(result.maxElevGain) + 'm was the flattest available at this distance near here. Try a shorter loop or a higher limit. ') : '';
+    var combinedNote = [note, backtrackNote, surfaceNote, radiusNote, maxElevNote, engineNote].filter(Boolean).join(' ') || null;
 
     setStatus(combinedNote || (keepView ? 'Route adjusted.' : 'Route plotted (' + (result.engineUsed||'') + (result.usedTrailData ? ', anchored on real trail data' : '') + ')') + (keepView ? '' : '. Reading elevation…'), false, !combinedNote);
+
+    // The route itself is already drawn on the map at this point — hide the
+    // loading overlay right here rather than waiting for the elevation
+    // lookup below (a separate, slower network call) to also finish. That
+    // gap between "route visible" and "overlay finally disappears" was most
+    // noticeable in Fast mode, where the route itself appears almost
+    // instantly but the overlay used to linger through the elevation fetch.
+    hideMapLoading();
 
     try{
       var elevations = state.route.elevations || await fetchElevations(result.coords);
@@ -2986,10 +3185,11 @@
     var before = state.route.distanceKm;
     var working = {
       coords: state.route.coords, elevations: state.route.elevations,
-      offroadFlags: state.route.offroadFlags, surfacePct: state.route.surfacePct
+      offroadFlags: state.route.offroadFlags, surfacePct: state.route.surfacePct,
+      legBoundaries: state.route.legBoundaries
     };
     var cleaned = stripDeadEndSpikes(working);
-    cleaned = stripDeadEndSpikes(cleaned, 32);
+    cleaned = stripDeadEndSpikes(cleaned, 45);
     cleaned.backtrackKm = measureBacktrackKm(cleaned.coords);
     cleaned.viaSeq = state.route.viaSeq;
     var recomputed = recomputeSurfacePct(cleaned.coords, cleaned.offroadFlags);
@@ -3093,7 +3293,7 @@
       var effMinOffroad = (state.surface === 'offroad' && state.activity !== 'road') ? state.minOffroadPct : undefined;
       var result = await routeSeq(state.route.viaSeq, state.activity, state.surface, effMinOffroad);
       result = stripDeadEndSpikes(result);       // fine pass: literal same-road reversals
-      result = stripDeadEndSpikes(result, 32);   // coarser pass: catches a dead-end reached
+      result = stripDeadEndSpikes(result, 45);   // coarser pass: catches a dead-end reached
                                                   // via one street and left via a different,
                                                   // nearby parallel one — common in industrial/
                                                   // commercial areas full of short service roads.
@@ -3156,9 +3356,27 @@
   // longer than the original target distance, that's fine — the actual
   // resulting distance simply replaces the target, no capping or rejection.
   var segmentStartPoint = null, segmentEndPoint = null;
+  var segmentStartIdx = null, segmentEndIdx = null; // captured at tap-time — never recomputed later, see why below
   var segmentStartMarker = null, segmentEndMarker = null, segmentHighlightLine = null;
   var detour1Point = null, detour2Point = null;
   var detour1Marker = null, detour2Marker = null;
+
+  // On a route that deliberately passes close to itself (Crisscross, Figure)
+  // the same physical spot can appear at two very different points along
+  // coords[]. A plain "nearest geometric match" for the end tap could lock
+  // onto a completely different pass of the route than the one the start tap
+  // matched — wiping out a much bigger stretch than intended when the
+  // segment gets cleared, which is what produced the pigtail. Searching only
+  // within a window of indices near the start tap keeps the match local.
+  function nearestIndexOnRouteWindow(coords, target, refIdx, windowSize){
+    var lo = Math.max(0, refIdx - windowSize), hi = Math.min(coords.length-1, refIdx + windowSize);
+    var bestIdx = refIdx, bestD = Infinity;
+    for (var i=lo;i<=hi;i++){
+      var d = haversineKm(target, coords[i]);
+      if (d < bestD){ bestD = d; bestIdx = i; }
+    }
+    return bestIdx;
+  }
 
   function segmentFlagIcon(color, letter){
     return L.divIcon({ className:'', html:'<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:'+color+';border:2px solid #eee7d6;box-shadow:0 0 8px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);color:#eee7d6;font-family:IBM Plex Mono,monospace;font-size:10px;font-weight:700;">'+letter+'</span></div>', iconSize:[20,20], iconAnchor:[10,18] });
@@ -3170,6 +3388,7 @@
     if (detour1Marker){ map.removeLayer(detour1Marker); detour1Marker = null; }
     if (detour2Marker){ map.removeLayer(detour2Marker); detour2Marker = null; }
     segmentStartPoint = null; segmentEndPoint = null;
+    segmentStartIdx = null; segmentEndIdx = null;
     detour1Point = null; detour2Point = null;
     state.segmentPickStep = 0;
   }
@@ -3177,8 +3396,23 @@
     if (segmentHighlightLine){ map.removeLayer(segmentHighlightLine); segmentHighlightLine = null; }
     if (!segmentStartPoint || !segmentEndPoint || !state.route || !state.route.coords) return;
     var coords = state.route.coords;
-    var i0 = nearestIndexOnRoute(coords, segmentStartPoint);
-    var i1 = nearestIndexOnRoute(coords, segmentEndPoint);
+    var viaSeq = state.route.viaSeq;
+    var legBoundaries = state.route.legBoundaries;
+    var i0, i1;
+    var sIdx = viaSeq ? viaSeq.indexOf(segmentStartPoint) : -1;
+    var eIdx = viaSeq ? viaSeq.indexOf(segmentEndPoint) : -1;
+    if (sIdx !== -1 && eIdx !== -1 && legBoundaries && legBoundaries.length === viaSeq.length){
+      // S and E are now known via-points — use their authoritative indices
+      // from the last route computation, not a geometric guess.
+      i0 = legBoundaries[sIdx];
+      i1 = legBoundaries[eIdx];
+    } else {
+      // Fallback for the brief moment between tapping S and tapping E, when
+      // E isn't a via-point yet: same windowed-anchor approach as before.
+      i0 = nearestIndexOnRoute(coords, segmentStartPoint);
+      var windowSize = Math.max(200, Math.round(coords.length * 0.2));
+      i1 = nearestIndexOnRouteWindow(coords, segmentEndPoint, i0, windowSize);
+    }
     var lo = Math.min(i0,i1), hi = Math.max(i0,i1);
     var seg = coords.slice(lo, hi+1);
     if (seg.length > 1){
@@ -3186,9 +3420,14 @@
       segmentHighlightLine.bringToBack();
     }
   }
-  function insertIndexForPoint(pt, coords, viaSeq){
+  function insertIndexForPoint(pt, coords, viaSeq, legBoundaries){
     var idx = nearestIndexOnRoute(coords, pt);
-    var viaIdxAlongRoute = viaSeq.map(function(vp){ return nearestIndexOnRoute(coords, vp); });
+    // Prefer the authoritative per-via-point indices from the last routing
+    // call (see routeSeq) over guessing by geographic proximity — those
+    // guesses were the actual bug on routes that cross close to themselves.
+    var viaIdxAlongRoute = (legBoundaries && legBoundaries.length === viaSeq.length)
+      ? legBoundaries
+      : viaSeq.map(function(vp){ return nearestIndexOnRoute(coords, vp); });
     var insertAt = viaSeq.length - 1;
     for (var i=0;i<viaIdxAlongRoute.length-1;i++){
       if (idx >= viaIdxAlongRoute[i] && idx <= viaIdxAlongRoute[i+1]){ insertAt = i+1; break; }
@@ -3206,70 +3445,61 @@
       clearSegmentMarkers();
       var startIdx = nearestIndexOnRoute(coords, clickLatLng);
       segmentStartPoint = coords[startIdx];
+      segmentStartIdx = startIdx;
       segmentStartMarker = L.marker(segmentStartPoint, { icon: segmentFlagIcon('#6b9c5b','S') }).addTo(map)
         .bindTooltip('Segment start', { className:'pin-label' });
       state.segmentPickStep = 1;
       setStatus('Segment start set — tap an end point further along the route.');
 
-    } else if (state.segmentPickStep === 1){
-      // Step 2: mark the segment end — nothing about the route changes yet,
-      // this just defines and highlights the stretch you're about to replace
-      var endIdx = nearestIndexOnRoute(coords, clickLatLng);
+    } else {
+      // Step 2: mark the segment end — searched only in a window around the
+      // start tap's own position along the route (not the whole route), so
+      // a route that crosses close to itself elsewhere (Crisscross, Figure)
+      // can't accidentally match a completely different pass through here.
+      var windowSize = Math.max(120, Math.round(coords.length * 0.15));
+      var endIdx = nearestIndexOnRouteWindow(coords, clickLatLng, segmentStartIdx, windowSize);
       segmentEndPoint = coords[endIdx];
+      segmentEndIdx = endIdx;
       segmentEndMarker = L.marker(segmentEndPoint, { icon: segmentFlagIcon('#c1611d','E') }).addTo(map)
         .bindTooltip('Segment end', { className:'pin-label' });
-      drawSegmentHighlight();
-      state.segmentPickStep = 2;
-      setStatus('Segment marked. Now tap your first detour point — anywhere, it\'ll snap to nearby unpaved ground.');
-
-    } else if (state.segmentPickStep === 2){
-      // Step 3: first detour point — snaps to unpaved ground specifically
-      showMapLoading();
-      setStatus('Snapping detour point 1 to nearby unpaved ground…');
-      var snap1 = await snapToNearestUnpavedRoad(clickLatLng[0], clickLatLng[1], state.activity);
-      hideMapLoading();
-      detour1Point = snap1.point;
-      detour1Marker = L.marker(detour1Point, { icon: segmentFlagIcon('#3f9fd6','1') }).addTo(map)
-        .bindTooltip('Detour point 1' + (snap1.unpaved ? '' : ' (no unpaved ground nearby — used the closest road instead)'), { className:'pin-label' });
-      state.segmentPickStep = 3;
-      setStatus(snap1.unpaved ? 'First detour point set on unpaved ground. Tap the second detour point.' : 'No unpaved ground nearby that first point — fell back to the closest road. Tap the second detour point.');
-
-    } else {
-      // Step 4: second detour point — snap, THEN do the actual recalculation
-      showMapLoading();
-      setStatus('Snapping detour point 2 to nearby unpaved ground…');
-      var snap2 = await snapToNearestUnpavedRoad(clickLatLng[0], clickLatLng[1], state.activity);
-      detour2Point = snap2.point;
-      detour2Marker = L.marker(detour2Point, { icon: segmentFlagIcon('#3f9fd6','2') }).addTo(map)
-        .bindTooltip('Detour point 2' + (snap2.unpaved ? '' : ' (no unpaved ground nearby — used the closest road instead)'), { className:'pin-label' });
       state.segmentPickStep = 0;
 
-      // Clear out any via-points that already sat inside the marked stretch,
-      // then rebuild it as Start → Detour 1 → Detour 2 → End, in that order.
+      // Immediately clear out any via-points that already sat inside this
+      // stretch and reroute S→E directly — so the segment becomes one
+      // clean, empty piece right away, not still cluttered with the
+      // original handles. From this point on you can just grab anywhere on
+      // the highlighted stretch and drag — no need to also press Drag Route.
+      //
+      // Uses the AUTHORITATIVE per-via-point indices from the last route
+      // computation (routeSeq's legBoundaries) instead of geometric
+      // guessing — on a route that crosses close to itself (Crisscross,
+      // Figure), guessing could match an existing via-point to the wrong
+      // pass entirely, which is what kept leaving a stray loop behind.
       var oldViaSeq = state.route.viaSeq;
-      var startRouteIdx = nearestIndexOnRoute(coords, segmentStartPoint);
-      var endRouteIdx = nearestIndexOnRoute(coords, segmentEndPoint);
-      var loIdx = Math.min(startRouteIdx, endRouteIdx), hiIdx = Math.max(startRouteIdx, endRouteIdx);
-      var viaSeq = [];
+      var oldBoundaries = state.route.legBoundaries;
+      var haveBoundaries = oldBoundaries && oldBoundaries.length === oldViaSeq.length;
+      var loIdx = Math.min(segmentStartIdx, segmentEndIdx), hiIdx = Math.max(segmentStartIdx, segmentEndIdx);
+      var kept = [];
       for (var vi=0; vi<oldViaSeq.length; vi++){
         var isRouteBoundary = (vi === 0 || vi === oldViaSeq.length-1);
-        var vIdx = nearestIndexOnRoute(coords, oldViaSeq[vi]);
-        if (isRouteBoundary || vIdx < loIdx || vIdx > hiIdx) viaSeq.push(oldViaSeq[vi]);
+        if (isRouteBoundary){
+          kept.push({ point: oldViaSeq[vi], routeIdx: (vi === 0 ? -1 : coords.length) });
+          continue;
+        }
+        var vIdx = haveBoundaries ? oldBoundaries[vi] : nearestIndexOnRoute(coords, oldViaSeq[vi]);
+        if (vIdx < loIdx || vIdx > hiIdx) kept.push({ point: oldViaSeq[vi], routeIdx: vIdx });
       }
-      var atStart = insertIndexForPoint(segmentStartPoint, coords, viaSeq);
-      // Insert all four in one block — order matches how the segment was
-      // walked (start→end) and how the detour points were tapped (1→2).
-      viaSeq.splice(atStart, 0, segmentStartPoint, detour1Point, detour2Point, segmentEndPoint);
+      var atStart = kept.length; // default: right at the end, before the true close
+      for (var ki=0; ki<kept.length-1; ki++){
+        if (loIdx >= kept[ki].routeIdx && loIdx <= kept[ki+1].routeIdx){ atStart = ki+1; break; }
+      }
+      var viaSeq = kept.map(function(k){ return k.point; });
+      viaSeq.splice(atStart, 0, segmentStartPoint, segmentEndPoint);
       state.route.viaSeq = viaSeq;
 
-      // No distance cap here on purpose — if the detour makes the route
-      // longer than the original target, the real resulting distance just
-      // becomes the new number shown; nothing gets rejected or reverted.
       await rerouteFromViaSeq();
-      if (detour1Marker){ map.removeLayer(detour1Marker); detour1Marker = null; }
-      if (detour2Marker){ map.removeLayer(detour2Marker); detour2Marker = null; }
       drawSegmentHighlight();
-      setStatus('Detour routed through both points — the segment now runs Start → Detour 1 → Detour 2 → End. Distance updated to match, even if that\'s more than your original target.', false, true);
+      setStatus('Segment cleared and locked in — drag anywhere inside the highlighted stretch right away. Drags inside it prefer unpaved ground; the rest of the route is protected.', false, true);
     }
   }
 
@@ -3283,10 +3513,11 @@
   var dragPreviewLine = null;
 
   function onRouteLineMouseDown(e){
-    // Only Drag Route triggers a free drag now — Select Segment has its own
-    // explicit 4-tap flow (start, end, then two detour points), so letting a
-    // plain drag also fire mid-flow would conflict with those taps.
-    if (!state.dragRouteMode || !state.route || !state.route.viaSeq) return;
+    // Works if Drag Route is on, OR if a segment has just been fully picked
+    // (both S/E flags set — a simple 2-tap flow) — dragging inside it works
+    // immediately, no need to separately press Drag Route.
+    var segmentReady = state.segmentMode && segmentStartPoint && segmentEndPoint;
+    if (!(state.dragRouteMode || segmentReady) || !state.route || !state.route.viaSeq) return;
     L.DomEvent.stopPropagation(e);
     L.DomEvent.preventDefault(e);
 
@@ -3294,13 +3525,42 @@
     var coords = state.route.coords;
     var clickIdx = nearestIndexOnRoute(coords, clickLatLng);
     var viaSeq = state.route.viaSeq;
-    var viaIdxAlongRoute = viaSeq.map(function(vp){ return nearestIndexOnRoute(coords, vp); });
-    var insertAt = viaSeq.length - 1; // default: just before the closing point
-    for (var i=0;i<viaIdxAlongRoute.length-1;i++){
-      if (clickIdx >= viaIdxAlongRoute[i] && clickIdx <= viaIdxAlongRoute[i+1]){ insertAt = i+1; break; }
+    var legBoundaries = state.route.legBoundaries;
+    var haveBoundaries = legBoundaries && legBoundaries.length === viaSeq.length;
+    var insertAt, prevPoint, nextPoint;
+
+    if (segmentReady){
+      // Constrained entirely to the known S↔E slice of viaSeq — never
+      // compares against the rest of the route. On a route that crosses
+      // close to itself (Crisscross, Figure), matching against the WHOLE
+      // route could lock onto a completely unrelated, far-away via-point
+      // that just happens to sit near this same spot on a different pass —
+      // which is exactly what sent the drag reference miles down the road.
+      // Uses the authoritative legBoundaries for each known via-point's own
+      // position, not a geometric guess.
+      var segStartSeqIdx = viaSeq.indexOf(segmentStartPoint);
+      var segEndSeqIdx = viaSeq.indexOf(segmentEndPoint);
+      if (segStartSeqIdx === -1 || segEndSeqIdx === -1 || segEndSeqIdx <= segStartSeqIdx) return; // segment boundaries lost somehow — bail out safely rather than guess
+      var segIdxAlongRoute = haveBoundaries
+        ? legBoundaries.slice(segStartSeqIdx, segEndSeqIdx+1)
+        : viaSeq.slice(segStartSeqIdx, segEndSeqIdx+1).map(function(vp){ return nearestIndexOnRoute(coords, vp); });
+      insertAt = segEndSeqIdx; // default: just before E
+      for (var i=0;i<segIdxAlongRoute.length-1;i++){
+        if (clickIdx >= segIdxAlongRoute[i] && clickIdx <= segIdxAlongRoute[i+1]){ insertAt = segStartSeqIdx + i + 1; break; }
+      }
+      prevPoint = viaSeq[insertAt-1];
+      nextPoint = viaSeq[insertAt];
+    } else {
+      var viaIdxAlongRoute = haveBoundaries ? legBoundaries : viaSeq.map(function(vp){ return nearestIndexOnRoute(coords, vp); });
+      insertAt = viaSeq.length - 1; // default: just before the closing point
+      for (var j=0;j<viaIdxAlongRoute.length-1;j++){
+        if (clickIdx >= viaIdxAlongRoute[j] && clickIdx <= viaIdxAlongRoute[j+1]){ insertAt = j+1; break; }
+      }
+      prevPoint = viaSeq[insertAt-1];
+      nextPoint = viaSeq[insertAt];
     }
 
-    lineDragState = { insertAt: insertAt, prev: viaSeq[insertAt-1], next: viaSeq[insertAt] };
+    lineDragState = { insertAt: insertAt, prev: prevPoint, next: nextPoint };
     map.dragging.disable(); // otherwise the map itself pans instead of the line moving
     map.on('mousemove', onLineDragMove);
     map.on('mouseup', onLineDragUp);
@@ -3315,6 +3575,18 @@
     }).addTo(map);
   }
 
+  // Prefers unpaved ground while a segment is actively selected — that's
+  // the whole point of marking a segment in the first place — and falls
+  // back to the general "any rideable road" snap everywhere else.
+  async function snapForDrag(lat, lon, activity){
+    var inActiveSegment = state.segmentMode && segmentStartPoint && segmentEndPoint;
+    if (inActiveSegment){
+      var result = await snapToNearestUnpavedRoad(lat, lon, activity);
+      return result.point;
+    }
+    return await snapToNearestRoad(lat, lon, activity);
+  }
+
   async function onLineDragUp(e){
     map.off('mousemove', onLineDragMove);
     map.off('mouseup', onLineDragUp);
@@ -3327,7 +3599,7 @@
 
     showMapLoading(); // show it the instant you let go — the snap lookup itself can take a moment, and it should never look like nothing is happening
     setStatus('Snapping to a nearby rideable road…');
-    var snapped = await snapToNearestRoad(e.latlng.lat, e.latlng.lng, state.activity);
+    var snapped = await snapForDrag(e.latlng.lat, e.latlng.lng, state.activity);
     state.route.viaSeq.splice(insertAt, 0, snapped);
     rerouteFromViaSeq(); // recalculates immediately on release
   }
@@ -3359,7 +3631,7 @@
           var pos = e.target.getLatLng();
           showMapLoading();
           setStatus('Snapping to a nearby rideable road…');
-          var snapped = await snapToNearestRoad(pos.lat, pos.lng, state.activity);
+          var snapped = await snapForDrag(pos.lat, pos.lng, state.activity);
           state.route.viaSeq[idx] = snapped;
           rerouteFromViaSeq();
         });
