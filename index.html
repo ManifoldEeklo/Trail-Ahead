@@ -1794,23 +1794,53 @@
   async function routeSeq(coordsSeq, activity, surface, minOffroadPct){
     var result;
     if (activity === 'road'){
-      // BRouter's "safety" profile is purpose-built to maximize distance
-      // from cars — it'll detour up to ~30% out of the way to stay on quiet
-      // streets rather than the fastest/most direct road. That's a real
-      // behavioral difference from OSRM's bike profile, which leans hard on
-      // dedicated cycleways — and in Belgium/NL those very often run
-      // directly alongside the busiest N-roads, so "on a cycle path" and
-      // "on a quiet road" aren't the same thing here. Also means Road now
-      // gets the same real WayTags data as Gravel/MTB, so N-road usage can
-      // be measured and scored the same way.
+      // BRouter's "safety" profile maximizes distance from cars — real
+      // improvement over OSRM's cycleway-leaning bike profile for finding
+      // genuinely quiet roads instead of paths that just run alongside a
+      // busy N-road. BUT "safety" optimizes for traffic, not surface — it
+      // can happily route a quiet unpaved lane, which a road bike can't
+      // ride. So: try safety first, but only accept it if BRouter's own
+      // measured surface data confirms it stayed essentially fully paved.
+      // If not, fall back to "fastbike" (BRouter's road/skinny-tire
+      // profile, surface-conservative by design), and if THAT still shows
+      // any real unpaved presence, fall back further to OSRM's bike
+      // profile — which, whatever its cycleway-adjacent-to-N-roads
+      // tendency, reliably stays on paved surfaces. Road should never
+      // return an unpaved route, full stop.
+      var candidates = [];
       try{
-        result = await brouterRoute(coordsSeq, 'safety');
-        result.engineUsed = 'BRouter · safety (quiet roads)';
-        result.fellBack = false;
-      } catch(e){
-        result = await osrmRoute(coordsSeq, 'bike');
-        result.engineUsed = 'OSRM · road (fallback — quiet-road router was unreachable)';
-        result.fellBack = true;
+        var safetyResult = await brouterRoute(coordsSeq, 'safety');
+        safetyResult.engineUsed = 'BRouter · safety (quiet roads)';
+        safetyResult.fellBack = false;
+        candidates.push(safetyResult);
+      } catch(e){ /* try the next option below */ }
+
+      if (!candidates.length || (typeof candidates[0].surfacePct === 'number' && candidates[0].surfacePct > 2)){
+        try{
+          var fastbikeResult = await brouterRoute(coordsSeq, 'fastbike');
+          fastbikeResult.engineUsed = 'BRouter · fastbike (paved, road bike)';
+          fastbikeResult.fellBack = false;
+          candidates.push(fastbikeResult);
+        } catch(e2){ /* try OSRM below */ }
+      }
+
+      // Pick the first candidate that's confirmed essentially fully paved;
+      // if none qualify, fall back to OSRM as the most surface-conservative
+      // option left, however busy its route might run.
+      result = candidates.find(function(c){ return typeof c.surfacePct !== 'number' || c.surfacePct <= 2; });
+      if (!result){
+        try{
+          result = await osrmRoute(coordsSeq, 'bike');
+          result.engineUsed = 'OSRM · road (fallback — paved-only)';
+          result.fellBack = true;
+        } catch(e3){
+          if (candidates.length){
+            result = candidates[0]; // nothing paved-confirmed was reachable at all — better an unconfirmed route than none
+            result.fellBack = true;
+          } else {
+            throw e3;
+          }
+        }
       }
     } else {
       var fellBack = false;
