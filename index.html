@@ -1631,6 +1631,11 @@
   // as off-road purely because they happen to have a segregated bike path
   // alongside them — a real false-positive, now removed.
   var OFFROAD_TAG_RE = /highway=(track|path|bridleway)|surface=(unpaved|gravel|fine_gravel|dirt|ground|compacted|earth|grass|sand|pebblestone|mud|woodchips|dirt\/sand|grass_paver)|tracktype=grade[2-5]|mtb:scale=/;
+  // Belgian "N-wegen" (and their international equivalent elsewhere) are
+  // tagged highway=primary/secondary/trunk in OSM — busier, faster regional
+  // roads that most riders would rather avoid on a leisure/gravel ride even
+  // when the route has to touch one briefly to connect two quieter roads.
+  var MAJOR_ROAD_TAG_RE = /highway=(primary|secondary|trunk)(_link)?/;
 
   function brouterRoute(coordsLatLon, profile){
     var lonlats = coordsLatLon.map(function(c){ return c[1].toFixed(6)+','+c[0].toFixed(6); }).join('|');
@@ -1654,6 +1659,7 @@
       for (var j=1;j<latlon.length;j++) dist += haversineKm(latlon[j-1], latlon[j]);
 
       var surfacePct = null;
+      var majorRoadPct = null;
       var offroadFlags = null; // one bool per latlon point: is the segment ENDING at this point off-road? flags[0] is always false (no preceding segment). Kept in lockstep with coords through spike-stripping so colored segments can never end up disconnected from the final route.
       var msgs = line.properties && line.properties.messages;
       if (msgs && msgs.length > 1){
@@ -1669,13 +1675,16 @@
             var row = msgs[m];
             var segDist = parseFloat(row[distIdx]) || 0;
             var offroad = OFFROAD_TAG_RE.test(row[wtIdx] || '');
-            rows.push({ from: running, to: running+segDist, offroad: offroad });
+            var majorRoad = MAJOR_ROAD_TAG_RE.test(row[wtIdx] || '');
+            rows.push({ from: running, to: running+segDist, offroad: offroad, majorRoad: majorRoad });
             running += segDist;
           }
           var total = running;
           if (total > 0){
             var offroadM = rows.reduce(function(sum,r){ return sum + (r.offroad ? (r.to-r.from) : 0); }, 0);
             surfacePct = Math.round((offroadM/total)*100);
+            var majorRoadM = rows.reduce(function(sum,r){ return sum + (r.majorRoad ? (r.to-r.from) : 0); }, 0);
+            var majorRoadPct = Math.round((majorRoadM/total)*100);
 
             // Map that classification onto the DENSE route geometry (the same
             // coordinates that actually get drawn on the map), by cumulative
@@ -1698,7 +1707,7 @@
           }
         }
       }
-      return { coords: latlon, distanceKm: dist, elevations: elevations, surfacePct: surfacePct, offroadFlags: offroadFlags };
+      return { coords: latlon, distanceKm: dist, elevations: elevations, surfacePct: surfacePct, offroadFlags: offroadFlags, majorRoadPct: majorRoadPct };
     });
   }
 
@@ -1785,9 +1794,24 @@
   async function routeSeq(coordsSeq, activity, surface, minOffroadPct){
     var result;
     if (activity === 'road'){
-      result = await osrmRoute(coordsSeq, 'bike');
-      result.engineUsed = 'OSRM · road (paved-preferring)';
-      result.fellBack = false;
+      // BRouter's "safety" profile is purpose-built to maximize distance
+      // from cars — it'll detour up to ~30% out of the way to stay on quiet
+      // streets rather than the fastest/most direct road. That's a real
+      // behavioral difference from OSRM's bike profile, which leans hard on
+      // dedicated cycleways — and in Belgium/NL those very often run
+      // directly alongside the busiest N-roads, so "on a cycle path" and
+      // "on a quiet road" aren't the same thing here. Also means Road now
+      // gets the same real WayTags data as Gravel/MTB, so N-road usage can
+      // be measured and scored the same way.
+      try{
+        result = await brouterRoute(coordsSeq, 'safety');
+        result.engineUsed = 'BRouter · safety (quiet roads)';
+        result.fellBack = false;
+      } catch(e){
+        result = await osrmRoute(coordsSeq, 'bike');
+        result.engineUsed = 'OSRM · road (fallback — quiet-road router was unreachable)';
+        result.fellBack = true;
+      }
     } else {
       var fellBack = false;
       if (surface === 'offroad' || surface === 'mixed'){
@@ -1959,12 +1983,16 @@
       var deficit = Math.max(0, minOffroadPct - effectiveOffroadPct(r));
       score += (deficit/100) * 6; // heavily penalize falling short of the requested off-road minimum
     }
+    if (typeof r.majorRoadPct === 'number'){
+      score += (r.majorRoadPct/100) * 3; // prefer candidates that touch fewer N-roads/major roads, without hard-rejecting one that briefly needs to cross/join one to connect quieter roads
+    }
     return score;
   }
   function isCleanEnough(r, targetKm, minOffroadPct){
     var distErr = Math.abs(r.distanceKm - targetKm) / targetKm;
     var offroadOk = (typeof minOffroadPct !== 'number') || effectiveOffroadPct(r) >= minOffroadPct;
-    return distErr < 0.08 && r.backtrackKm < 0.15 && offroadOk;
+    var majorRoadOk = (typeof r.majorRoadPct !== 'number') || r.majorRoadPct <= 12; // a brief connector touch is fine, a route that's genuinely built around N-roads is not "clean enough" to settle for immediately
+    return distErr < 0.08 && r.backtrackKm < 0.15 && offroadOk && majorRoadOk;
   }
 
   // Pulls real off-road-friendly ways from OpenStreetMap (via Overpass)
@@ -3371,7 +3399,9 @@
       ('Could only fit ' + result.distanceKm.toFixed(1) + ' km within your ' + state.radiusKm + ' km radius — a loop that far out and back to ' + state.distanceKm + ' km doesn\'t fit inside that circle. Widen the radius or shorten the target distance. ') : '';
     var maxElevNote = (state.maxElevEnabled && typeof result.maxElevGain === 'number' && result.maxElevGain > state.maxElevM) ?
       ('Could not keep this route under ' + state.maxElevM + 'm of climbing — tried a few shapes and ' + Math.round(result.maxElevGain) + 'm was the flattest available at this distance near here. Try a shorter loop or a higher limit. ') : '';
-    var combinedNote = [note, backtrackNote, surfaceNote, radiusNote, maxElevNote, engineNote].filter(Boolean).join(' ') || null;
+    var majorRoadNote = (typeof result.majorRoadPct === 'number' && result.majorRoadPct > 12) ?
+      ('About ' + result.majorRoadPct + '% of this route runs on N-roads/major roads — tried to route around them but the connections near here needed it. ') : '';
+    var combinedNote = [note, backtrackNote, surfaceNote, radiusNote, maxElevNote, majorRoadNote, engineNote].filter(Boolean).join(' ') || null;
 
     setStatus(combinedNote || (keepView ? 'Route adjusted.' : 'Route plotted (' + (result.engineUsed||'') + (result.usedTrailData ? ', anchored on real trail data' : '') + ')') + (keepView ? '' : '. Reading elevation…'), false, !combinedNote);
 
