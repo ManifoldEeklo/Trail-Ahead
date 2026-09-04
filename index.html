@@ -106,6 +106,20 @@
     margin-top:12px;font-family:'Fjalla One',sans-serif;font-size:13px;letter-spacing:.08em;
     text-transform:uppercase;color:var(--text-muted);
   }
+  #drawOverlay{
+    display:none;position:fixed;inset:0;z-index:5000;background:rgba(6,10,8,.85);
+    align-items:center;justify-content:center;
+  }
+  #drawOverlay.open{display:flex;}
+  .draw-panel{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:20px;display:flex;flex-direction:column;align-items:center;max-width:92vw;
+  }
+  .draw-panel h3{margin:0 0 8px;color:var(--gold);font-family:'Fjalla One',sans-serif;font-weight:400;letter-spacing:.03em;font-size:19px;}
+  .draw-hint{font-size:12px;color:var(--text-muted);max-width:320px;text-align:center;margin-bottom:14px;line-height:1.4;}
+  #drawCanvas{background:#0d1712;border:1px solid var(--line);border-radius:8px;touch-action:none;cursor:crosshair;max-width:100%;}
+  .draw-btn-row{display:flex;gap:10px;margin-top:14px;width:100%;}
+  .draw-btn-row .btn{flex:1 1 auto;}
   #pegman{
     position:absolute;top:90px;left:10px;z-index:900;
     width:36px;height:36px;border-radius:50%;
@@ -377,6 +391,19 @@
 </head>
 <body>
 
+<div id="drawOverlay" style="display:none;">
+  <div class="draw-panel">
+    <h3>Draw your shape</h3>
+    <div class="draw-hint">Draw a closed shape with your finger or mouse — it'll be traced onto real roads around your start point, the same way as the built-in figures.</div>
+    <canvas id="drawCanvas" width="320" height="320"></canvas>
+    <div class="draw-btn-row">
+      <button class="btn small" id="drawClearBtn">↺ Clear</button>
+      <button class="btn small" id="drawCancelBtn">Cancel</button>
+      <button class="btn primary small" id="drawConfirmBtn">✓ Confirm &amp; Generate</button>
+    </div>
+  </div>
+</div>
+
 <div id="splashScreen">
   <div class="splash-inner">
     <svg class="splash-logo" viewBox="0 0 220 150" xmlns="http://www.w3.org/2000/svg">
@@ -576,13 +603,14 @@
 
       <div class="field">
         <label>Route shape</label>
-        <div class="diff-select" style="grid-template-columns:repeat(3,1fr);">
+        <div class="diff-select" style="grid-template-columns:repeat(4,1fr);">
           <div class="diff-btn sel" data-rs="loop">Loop</div>
           <div class="diff-btn" data-rs="crisscross">Crisscross</div>
           <div class="diff-btn" data-rs="figure">Figure</div>
+          <div class="diff-btn" data-rs="draw">✏️ Draw</div>
         </div>
         <div class="hint-text" style="margin-top:6px;">
-          Loop sweeps around the start in one steady circuit. Crisscross visits the same via-points in a scrambled order instead — cutting back and forth through the middle rather than tracing a clean perimeter, so it turns up more small/unexpected roads. Figure traces a chosen shape — it'll only ever roughly resemble it, since the route still has to follow real roads.
+          Loop sweeps around the start in one steady circuit. Crisscross visits the same via-points in a scrambled order instead — cutting back and forth through the middle rather than tracing a clean perimeter, so it turns up more small/unexpected roads. Figure traces a chosen shape — it'll only ever roughly resemble it, since the route still has to follow real roads. Draw (experimental): sketch any closed shape yourself and it's traced the same way.
         </div>
         <select id="figureSelect" style="display:none;margin-top:10px;">
           <option value="heart" selected>❤️ Heart</option>
@@ -1417,15 +1445,119 @@
 
   Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-rs]'), function(btn){
     btn.addEventListener('click', function(){
+      var rs = btn.getAttribute('data-rs');
+      if (rs === 'draw'){
+        if (!state.start){ setStatus('Set a start point first — the shape gets traced around it.', true); return; }
+        openDrawOverlay();
+        return; // selection + confirm happens inside the draw overlay, not here
+      }
       Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-rs]'), function(b){ b.classList.remove('sel'); });
       btn.classList.add('sel');
-      state.routeStyle = btn.getAttribute('data-rs');
+      state.routeStyle = rs;
       document.getElementById('figureSelect').style.display = (state.routeStyle === 'figure') ? 'block' : 'none';
     });
   });
   document.getElementById('figureSelect').addEventListener('change', function(){
     state.figureShape = this.value;
   });
+
+  // ---- Draw-your-own-shape (experimental) ----
+  // Captures a freehand closed shape on a canvas, normalizes it into the
+  // same [-1,1]-ish space the built-in figures use, resamples it evenly by
+  // arc length (reusing sampleClosedPolyline — the drawn stroke doesn't
+  // need to already be perfectly closed, the resampler treats the last
+  // point as connecting back to the first automatically), and registers it
+  // as a one-off entry in FIGURE_SHAPES. From there it's indistinguishable
+  // from Heart/Star/etc to the rest of the app — same pipeline, same
+  // road-snapping, same "rough impression, not an exact drawing" caveat.
+  var drawCanvas, drawCtx, isDrawingStroke = false, rawDrawPoints = [];
+
+  function initDrawCanvas(){
+    drawCanvas = document.getElementById('drawCanvas');
+    drawCtx = drawCanvas.getContext('2d');
+    resetDrawCanvas();
+
+    function getPos(e){
+      var rect = drawCanvas.getBoundingClientRect();
+      var t = (e.touches && e.touches[0]) || e;
+      return {
+        x: (t.clientX - rect.left) * (drawCanvas.width / rect.width),
+        y: (t.clientY - rect.top) * (drawCanvas.height / rect.height)
+      };
+    }
+    function start(e){
+      e.preventDefault();
+      isDrawingStroke = true;
+      rawDrawPoints = [];
+      var p = getPos(e);
+      rawDrawPoints.push(p);
+      drawCtx.beginPath();
+      drawCtx.moveTo(p.x, p.y);
+    }
+    function move(e){
+      if (!isDrawingStroke) return;
+      e.preventDefault();
+      var p = getPos(e);
+      rawDrawPoints.push(p);
+      drawCtx.lineTo(p.x, p.y);
+      drawCtx.stroke();
+    }
+    function stop(){ isDrawingStroke = false; }
+
+    drawCanvas.addEventListener('mousedown', start);
+    drawCanvas.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+    drawCanvas.addEventListener('touchstart', start, {passive:false});
+    drawCanvas.addEventListener('touchmove', move, {passive:false});
+    drawCanvas.addEventListener('touchend', stop);
+  }
+  function resetDrawCanvas(){
+    rawDrawPoints = [];
+    drawCtx.fillStyle = '#0d1712';
+    drawCtx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+    drawCtx.strokeStyle = '#d9b556';
+    drawCtx.lineWidth = 6;
+    drawCtx.lineCap = 'round';
+    drawCtx.lineJoin = 'round';
+  }
+  function openDrawOverlay(){
+    if (!drawCanvas) initDrawCanvas(); else resetDrawCanvas();
+    document.getElementById('drawOverlay').classList.add('open');
+  }
+  function closeDrawOverlay(){
+    document.getElementById('drawOverlay').classList.remove('open');
+  }
+  document.getElementById('drawClearBtn').addEventListener('click', resetDrawCanvas);
+  document.getElementById('drawCancelBtn').addEventListener('click', closeDrawOverlay);
+  document.getElementById('drawConfirmBtn').addEventListener('click', function(){
+    if (rawDrawPoints.length < 8){
+      setStatus('Draw a bit more of a shape first — that was too short to trace.', true);
+      return;
+    }
+    // Normalize into shape-space: center on the drawing's own bounding box,
+    // scale so it roughly fits [-1,1], and flip Y — canvas Y increases
+    // downward, but "up" on the drawing should mean north on the map.
+    var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    rawDrawPoints.forEach(function(p){
+      if(p.x<minX)minX=p.x; if(p.x>maxX)maxX=p.x;
+      if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y;
+    });
+    var cx=(minX+maxX)/2, cy=(minY+maxY)/2;
+    var half = Math.max((maxX-minX)/2, (maxY-minY)/2, 1);
+    var normalized = rawDrawPoints.map(function(p){
+      return [ (p.x-cx)/half, -(p.y-cy)/half ];
+    });
+    FIGURE_SHAPES.custom = function(n){ return sampleClosedPolyline(normalized, n); };
+    state.figureShape = 'custom';
+    state.routeStyle = 'figure';
+    Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-rs]'), function(b){ b.classList.remove('sel'); });
+    var figureBtn = document.querySelector('.diff-btn[data-rs="figure"]');
+    if (figureBtn) figureBtn.classList.add('sel');
+    document.getElementById('figureSelect').style.display = 'none'; // it's a one-off custom shape, not one of the dropdown options
+    closeDrawOverlay();
+    handleGenerateClick();
+  });
+
   Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-mode]'), function(btn){
     btn.addEventListener('click', function(){
       Array.prototype.forEach.call(document.querySelectorAll('.diff-btn[data-mode]'), function(b){ b.classList.remove('sel'); });
